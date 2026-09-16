@@ -17,7 +17,7 @@ por el contorno oscuro y el relleno nunca llega a ellos.
 
 QUE DEJA
 
-  public/logo.png                 el tren, recortado y con fondo transparente
+  public/logo.png                 el tren sobre una carretera, con fondo transparente
   src/app/icon.png                el icono de la pestana del navegador
   src/app/apple-icon.png          el icono al agregarla a la pantalla del iPhone
   public/icons/icon-192.png       icono para Android
@@ -34,7 +34,7 @@ from collections import deque
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -156,6 +156,145 @@ def quitar_fondo(original: Image.Image) -> Image.Image:
     return limpia.crop(caja) if caja else limpia
 
 
+# ---------------------------------------------------------------------------
+# La via se cambia por una carretera
+# ---------------------------------------------------------------------------
+#
+# El dibujo original es un tren sobre rieles, pero los repartidores andan en
+# moto por carretera. Se borra la via y se pinta una carretera en el mismo
+# lugar, con la misma inclinacion, DETRAS del tren: las ruedas quedan encima.
+
+# La via es un gris azulado, alrededor de (76, 77, 97), y vive en la franja de
+# abajo. El tren tiene grises parecidos mas arriba (la parrilla, el espejo, los
+# soportes), por eso la busqueda empieza en esta altura.
+VIA_DESDE_Y = 1150
+VIA_SATURACION_MAXIMA = 40
+VIA_BRILLO_MAXIMO = 200
+
+# Cuanto sube la carretera por encima del riel de arriba. Con la altura justa
+# de la via se veia angosta y el tren parecia flotar.
+CARRETERA_EXTRA_ARRIBA = 38
+
+ASFALTO = (58, 63, 72, 255)
+BORDE_ASFALTO = (28, 31, 37, 255)
+LINEA_BLANCA = (222, 226, 232, 255)
+LINEA_AMARILLA = (242, 193, 48, 255)
+
+
+def mascara_de_via(pixeles: np.ndarray) -> np.ndarray:
+    rgb = pixeles[:, :, :3].astype(np.int16)
+    opaco = pixeles[:, :, 3] > 0
+    maximo = rgb.max(axis=2)
+    saturacion = maximo - rgb.min(axis=2)
+    azulado = rgb[:, :, 2] >= rgb[:, :, 0] - 4
+
+    via = opaco & (saturacion <= VIA_SATURACION_MAXIMA) & (maximo <= VIA_BRILLO_MAXIMO) & azulado
+    via[:VIA_DESDE_Y, :] = False
+
+    # El borde de los rieles tiene pixeles de transicion que no cumplen del
+    # todo. Se crece dos pixeles, pero solo sobre grises azulados: el contorno
+    # del tren es rojo oscuro y asi no se toca.
+    orilla = opaco & (saturacion <= 35) & (rgb[:, :, 2] >= rgb[:, :, 0] - 10)
+    orilla[:VIA_DESDE_Y, :] = False
+    for _ in range(2):
+        crecido = via.copy()
+        crecido[1:, :] |= via[:-1, :]
+        crecido[:-1, :] |= via[1:, :]
+        crecido[:, 1:] |= via[:, :-1]
+        crecido[:, :-1] |= via[:, 1:]
+        via |= crecido & orilla
+    return via
+
+
+def bordes_de_la_via(via: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Rectas del borde de arriba y de abajo de la via.
+
+    Solo se usan las columnas donde se ven los dos rieles. Debajo del frente
+    del tren se ve uno solo, y medir ahi torcia la recta.
+    """
+    columnas = []
+    for x in range(0, via.shape[1], 4):
+        ys = np.nonzero(via[:, x])[0]
+        if len(ys) >= 6 and ys.max() - ys.min() >= 45:
+            columnas.append((x, ys.min(), ys.max()))
+    if len(columnas) < 10:
+        raise SystemExit('No se encontro la via en la imagen.')
+    c = np.array(columnas, dtype=float)
+    return np.polyfit(c[:, 0], c[:, 1], 1), np.polyfit(c[:, 0], c[:, 2], 1)
+
+
+def pintar_carretera(ancho: int, alto: int, arriba, abajo) -> Image.Image:
+    # Se dibuja al doble y se achica: asi los bordes salen suaves.
+    escala = 2
+    lienzo = Image.new('RGBA', (ancho * escala, alto * escala), (0, 0, 0, 0))
+    d = ImageDraw.Draw(lienzo)
+
+    def y_arriba(x: float) -> float:
+        return float(np.polyval(arriba, x)) - CARRETERA_EXTRA_ARRIBA
+
+    def y_abajo(x: float) -> float:
+        return float(np.polyval(abajo, x))
+
+    def e(x: float, y: float) -> tuple[float, float]:
+        return (x * escala, y * escala)
+
+    x0, x1 = 20, ancho - 20
+    r0 = (y_abajo(x0) - y_arriba(x0)) / 2
+    r1 = (y_abajo(x1) - y_arriba(x1)) / 2
+    izq, der = x0 + r0, x1 - r1
+
+    # Cuerpo con extremos redondeados; el contorno va primero y un poco mayor.
+    for color, crece in ((BORDE_ASFALTO, 7), (ASFALTO, 0)):
+        d.polygon(
+            [
+                e(izq, y_arriba(izq) - crece),
+                e(der, y_arriba(der) - crece),
+                e(der, y_abajo(der) + crece),
+                e(izq, y_abajo(izq) + crece),
+            ],
+            fill=color,
+        )
+        for cx, r in ((izq, r0), (der, r1)):
+            cy = (y_arriba(cx) + y_abajo(cx)) / 2
+            d.ellipse([e(cx - r - crece, cy - r - crece), e(cx + r + crece, cy + r + crece)], fill=color)
+
+    # Las dos lineas blancas de la orilla.
+    for fraccion in (0.16, 0.84):
+        puntos = [
+            e(x, y_arriba(x) + (y_abajo(x) - y_arriba(x)) * fraccion)
+            for x in range(int(izq), int(der) + 1, 10)
+        ]
+        d.line(puntos, fill=LINEA_BLANCA, width=5 * escala)
+
+    # La linea del centro, punteada.
+    trazo, hueco = 60, 42
+    x = izq + 10
+    while x < der - 10:
+        xa, xb = x, min(x + trazo, der - 10)
+        ya = (y_arriba(xa) + y_abajo(xa)) / 2
+        yb = (y_arriba(xb) + y_abajo(xb)) / 2
+        d.line([e(xa, ya), e(xb, yb)], fill=LINEA_AMARILLA, width=8 * escala)
+        x += trazo + hueco
+
+    return lienzo.resize((ancho, alto), Image.LANCZOS)
+
+
+def cambiar_via_por_carretera(logo: Image.Image) -> Image.Image:
+    pixeles = np.array(logo)
+    via = mascara_de_via(pixeles)
+    arriba, abajo = bordes_de_la_via(via)
+
+    pixeles[via, 3] = 0
+    pixeles[via, :3] = CONTORNO
+    tren = Image.fromarray(pixeles, 'RGBA')
+
+    final = pintar_carretera(logo.width, logo.height, arriba, abajo)
+    final.alpha_composite(tren)
+    caja = final.getbbox()
+    return final.crop(caja) if caja else final
+
+
 def guardar_liviano(imagen: Image.Image, ruta: Path) -> None:
     """
     Guarda el PNG con una paleta de 256 colores.
@@ -196,6 +335,9 @@ def main() -> None:
 
     logo = quitar_fondo(original)
     print(f'Recortado: {logo.width} x {logo.height}')
+
+    logo = cambiar_via_por_carretera(logo)
+    print('Via cambiada por carretera.')
 
     publico = RAIZ / 'public'
     iconos = publico / 'icons'
