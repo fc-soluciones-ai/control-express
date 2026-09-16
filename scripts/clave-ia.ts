@@ -3,8 +3,8 @@
  *
  *   npm run ia:clave
  *
- * Sirve para Gemini (Google AI Studio, empieza con AIza) o para Claude
- * (Anthropic, empieza con sk-ant-): se reconoce por el comienzo. Si estan las
+ * Sirve para Gemini (Google AI Studio) o para Claude (Anthropic, empieza con
+ * sk-ant-): se reconoce por el comienzo. Si estan las
  * dos, la aplicacion usa Gemini.
  *
  * La clave se teclea (o se pega) en la terminal y no se muestra. Se prueba
@@ -69,16 +69,12 @@ function preguntarOculto(pregunta: string): Promise<string> {
 
 async function main(): Promise<void> {
   const clave = (await preguntarOculto('Pegue la clave de la IA (no se muestra): ')).trim();
-  const proveedor = clave.startsWith('AIza')
-    ? GEMINI
-    : clave.startsWith('sk-ant-')
-      ? ANTHROPIC
-      : null;
-  if (!proveedor) {
-    throw new Error(
-      'Eso no parece una clave de Gemini (empiezan con AIza) ni de Anthropic (sk-ant-).',
-    );
+  if (clave.length < 20 || /\s/.test(clave)) {
+    throw new Error('Eso no parece una clave completa. Copiela de nuevo.');
   }
+  // Las de Anthropic se reconocen por el comienzo. Google ha usado mas de un
+  // formato (AIza..., AQ....), asi que todo lo demas se prueba con Gemini.
+  const proveedor = clave.startsWith('sk-ant-') ? ANTHROPIC : GEMINI;
 
   const prueba = await proveedor.prueba(clave);
   if (!prueba.ok) {
