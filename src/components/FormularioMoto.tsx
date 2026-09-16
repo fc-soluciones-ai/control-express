@@ -22,8 +22,8 @@ import { useState } from 'react';
 
 import { ModalNumero } from '@/components/ModalNumero';
 import { PanelGps, type DatosGpsFormulario } from '@/components/PanelGps';
-import { PanelEvidencia } from '@/components/PanelEvidencia';
-import { TIPOS_DE_FOTO, type Evidencia } from '@/server/services/evidencia';
+import { PanelEntregaMoto } from '@/components/PanelEntregaMoto';
+import type { Evidencia } from '@/server/services/evidencia';
 import type { MotoConAsignacion } from '@/server/services/motos';
 
 export interface DatosMoto {
@@ -56,7 +56,7 @@ interface Props {
   hayComodin: boolean;
   /** Fotos del GPS de esta moto. Vacio cuando se esta creando. */
   evidenciaGps?: Evidencia[];
-  /** Fotos de la moto en si: estado, odometro, danos. */
+  /** Fotos de entrega de la moto: los cinco angulos y los detalles. */
   evidenciaMoto?: Evidencia[];
   enProceso: boolean;
   error: string | null;
@@ -256,7 +256,7 @@ export function FormularioMoto({
           <Pestana
             activa={pestana === 'FOTOS'}
             onClick={() => setPestana('FOTOS')}
-            etiqueta="📷 Fotos"
+            etiqueta="📷 Entrega"
           />
         </div>
 
@@ -456,13 +456,10 @@ export function FormularioMoto({
               bloqueado={enProceso}
             />
           ) : (
-            <PanelEvidencia
-              entidadTipo="MOTOCICLETA"
-              entidadId={moto?.placa ?? null}
-              tipos={TIPOS_DE_FOTO.MOTOCICLETA}
+            <PanelEntregaMoto
+              placa={moto?.placa ?? null}
               evidencia={evidenciaMoto}
               bloqueado={enProceso}
-              avisoSinRegistro="Guarde la moto primero. Despues podra adjuntarle fotos de como esta."
             />
           )}
 

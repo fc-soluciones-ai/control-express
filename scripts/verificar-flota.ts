@@ -570,11 +570,46 @@ async function main(): Promise<void> {
   comprobar('el gasto guarda su evidencia', (await evidenciaDe('GASTO', gasto.id)).length, 2);
 
   await agregarEvidencia(
-    { entidadTipo: 'MOTOCICLETA', entidadId: 'MOT200', tipo: 'ESTADO', contenido: png },
+    { entidadTipo: 'MOTOCICLETA', entidadId: 'MOT200', tipo: 'ADELANTE', contenido: png },
     { cajeroId: cajero.id },
   );
   comprobar('la moto guarda la suya', (await evidenciaDe('MOTOCICLETA', 'MOT200')).length, 1);
   comprobar('y cada una va por su lado', (await evidenciaDe('GPS', 'MOT200')).length, 0);
+
+  // El acta de entrega: una foto por angulo, dos detalles, y nada se suelta solo.
+  const fotoDeMoto = (tipo: string, descripcion?: string) =>
+    agregarEvidencia(
+      { entidadTipo: 'MOTOCICLETA', entidadId: 'MOT200', tipo, contenido: png, descripcion },
+      { cajeroId: cajero.id },
+    );
+  const codigo = async (promesa: Promise<unknown>) => {
+    try {
+      await promesa;
+      return 'SIN_ERROR';
+    } catch (e) {
+      return esErrorNegocio(e) ? e.codigo : 'ERROR_INESPERADO';
+    }
+  };
+  comprobar('no se toman dos fotos de adelante', await codigo(fotoDeMoto('ADELANTE')), 'DATOS_INVALIDOS');
+  for (const angulo of ['ATRAS', 'LADO_DERECHO', 'LADO_IZQUIERDO', 'ARRIBA']) {
+    await fotoDeMoto(angulo);
+  }
+  await fotoDeMoto('DETALLE', 'rayon en el tanque');
+  await fotoDeMoto('DETALLE', 'direccional quebrado');
+  comprobar('el acta completa son siete fotos', (await evidenciaDe('MOTOCICLETA', 'MOT200')).length, 7);
+  comprobar('no cabe un tercer detalle', await codigo(fotoDeMoto('DETALLE')), 'DATOS_INVALIDOS');
+  comprobar('ni un angulo que no existe', await codigo(fotoDeMoto('ESTADO')), 'DATOS_INVALIDOS');
+  const acta = await evidenciaDe('MOTOCICLETA', 'MOT200');
+  comprobar(
+    'los detalles guardan que se encontro',
+    acta.filter((f) => f.tipo === 'DETALLE').map((f) => f.descripcion).sort(),
+    ['direccional quebrado', 'rayon en el tanque'],
+  );
+  comprobar('la primera foto sigue ahi', acta.some((f) => f.tipo === 'ADELANTE'), true);
+
+  // Para repetir un angulo hay que borrar la foto, y eso queda en la bitacora.
+  await borrarEvidencia(acta.find((f) => f.tipo === 'ADELANTE')!.id, { cajeroId: cajero.id });
+  comprobar('borrada, se puede volver a tomar', await codigo(fotoDeMoto('ADELANTE')), 'SIN_ERROR');
 
   // El gasto no rota: al llegar al tope avisa en vez de botar un comprobante.
   await agregarEvidencia(

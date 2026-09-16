@@ -28,34 +28,51 @@ const MAXIMO_BYTES = 3 * 1024 * 1024;
 /**
  * A que se le puede adjuntar evidencia, y cuantas fotos se conservan.
  *
- * El GPS y la moto rotan: lo que importa es el estado de hoy, no el album
- * completo, y sin tope fotografiar el equipo cada semana engordaria la base
- * sin freno.
+ * El GPS rota: lo que importa es el estado de hoy, no el album completo, y
+ * sin tope fotografiar el equipo cada semana engordaria la base sin freno.
+ *
+ * La moto NO rota: sus fotos son el acta de entrega, como estaba la moto
+ * cuando se le dio al repartidor. Si se soltaran solas, un rayon nuevo se
+ * podria tapar tomando fotos hasta que se fuera la vieja. Tiene un cupo por
+ * angulo (ver TIPOS_DE_FOTO).
  *
  * El gasto NO rota. Es un hecho puntual y su foto es el comprobante de que se
  * hizo: borrarla porque llegaron otras seria perder justo lo que se guardo
  * para poder demostrarlo despues.
  */
 export const ENTIDADES = {
-  MOTOCICLETA: { maximo: 6, rota: true },
+  MOTOCICLETA: { maximo: 7, rota: false },
   GPS: { maximo: 6, rota: true },
   GASTO: { maximo: 4, rota: false },
 } as const;
 
 export type TipoEntidad = keyof typeof ENTIDADES;
 
+export interface TipoDeFoto {
+  valor: string;
+  etiqueta: string;
+  icono: string;
+  nota: string;
+  /** Cuantas fotos de este tipo puede tener el registro. Sin cupo, las que quepan. */
+  cupo?: number;
+}
+
 /** Que muestra la foto, segun a que este adjunta. */
-export const TIPOS_DE_FOTO: Record<TipoEntidad, ReadonlyArray<{ valor: string; etiqueta: string; icono: string; nota: string }>> = {
+export const TIPOS_DE_FOTO: Record<TipoEntidad, ReadonlyArray<TipoDeFoto>> = {
   GPS: [
     { valor: 'CONEXION', etiqueta: 'Conectado', icono: '🔌', nota: 'El equipo en su sitio, con el arnes puesto.' },
     { valor: 'CORRIENTE', etiqueta: 'Con corriente', icono: '💡', nota: 'La luz encendida, o la plataforma reportando.' },
     { valor: 'OTRO', etiqueta: 'Otra', icono: '📷', nota: 'Cualquier otra cosa que valga anotar.' },
   ],
+  // El acta de entrega: los cinco angulos, una foto cada uno, y hasta dos
+  // detalles de lo que ya traia (un rayon, un golpe, una pieza floja).
   MOTOCICLETA: [
-    { valor: 'ESTADO', etiqueta: 'Como esta', icono: '🏍️', nota: 'La moto completa, para dejar constancia de como se recibio.' },
-    { valor: 'ODOMETRO', etiqueta: 'Odometro', icono: '🔢', nota: 'El tablero marcando el kilometraje.' },
-    { valor: 'DANO', etiqueta: 'Dano', icono: '⚠️', nota: 'Un golpe, una pieza rota, algo que reclamar despues.' },
-    { valor: 'OTRO', etiqueta: 'Otra', icono: '📷', nota: 'Cualquier otra cosa que valga anotar.' },
+    { valor: 'ADELANTE', etiqueta: 'Adelante', icono: '⬆️', nota: 'De frente: faro, guardabarro y llanta delantera.', cupo: 1 },
+    { valor: 'ATRAS', etiqueta: 'Atras', icono: '⬇️', nota: 'Por detras: placa, stop y llanta trasera.', cupo: 1 },
+    { valor: 'LADO_DERECHO', etiqueta: 'Lado derecho', icono: '➡️', nota: 'El costado derecho completo.', cupo: 1 },
+    { valor: 'LADO_IZQUIERDO', etiqueta: 'Lado izquierdo', icono: '⬅️', nota: 'El costado izquierdo completo.', cupo: 1 },
+    { valor: 'ARRIBA', etiqueta: 'Arriba', icono: '🔝', nota: 'Desde arriba: asiento, tanque y tablero.', cupo: 1 },
+    { valor: 'DETALLE', etiqueta: 'Detalle', icono: '🔍', nota: 'Un rayon, golpe o averia que ya traia. Anote que es.', cupo: 2 },
   ],
   GASTO: [
     { valor: 'ANTES', etiqueta: 'Antes', icono: '🔧', nota: 'La pieza gastada, la llanta lisa, el aceite sucio.' },
@@ -225,8 +242,8 @@ export async function agregarEvidencia(
     );
   }
 
-  const permitidos = TIPOS_DE_FOTO[entrada.entidadTipo].map((t) => t.valor);
-  if (!permitidos.includes(entrada.tipo)) {
+  const tipoDeFoto = TIPOS_DE_FOTO[entrada.entidadTipo].find((t) => t.valor === entrada.tipo);
+  if (!tipoDeFoto) {
     throw new ErrorNegocio('DATOS_INVALIDOS', 'Indique que muestra la foto.');
   }
 
@@ -250,6 +267,26 @@ export async function agregarEvidencia(
         chofer: { select: { nombre: true } },
       },
     });
+
+    // El cupo por angulo se cuenta con la foto nueva ya dentro, igual que el
+    // total: dos envios a la vez no pueden pasarlo.
+    if (tipoDeFoto.cupo !== undefined) {
+      const delTipo = await tx.evidencia.count({
+        where: {
+          entidadTipo: entrada.entidadTipo,
+          entidadId: entrada.entidadId,
+          tipo: entrada.tipo,
+        },
+      });
+      if (delTipo > tipoDeFoto.cupo) {
+        throw new ErrorNegocio(
+          'DATOS_INVALIDOS',
+          tipoDeFoto.cupo === 1
+            ? `Ya hay foto de "${tipoDeFoto.etiqueta}". Borrela antes de tomar otra.`
+            : `Ya hay ${tipoDeFoto.cupo} fotos de "${tipoDeFoto.etiqueta}". Borre una antes de tomar otra.`,
+        );
+      }
+    }
 
     let sustituidas = 0;
     if (configuracion.rota) {

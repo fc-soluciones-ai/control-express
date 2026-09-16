@@ -437,13 +437,21 @@ borrado de la entidad tiene que llevarse su evidencia a mano.
 
 | Registro | Fotos | Al llenarse |
 |---|---|---|
-| Moto | 6 | sale la más vieja |
+| Moto | 7: una por ángulo y dos detalles | avisa, no bota nada |
 | GPS | 6 | sale la más vieja |
 | Gasto | 4 | avisa, no bota nada |
 
 El gasto no rota a propósito. Es un hecho puntual y su foto es el comprobante
 de que se hizo: borrarla porque llegaron otras sería perder justo lo que se
 guardó para poder demostrarlo después.
+
+**Las fotos de la moto son el acta de entrega**: cómo estaba cuando se le dio
+al repartidor. Van por casillas: adelante, atrás, lado derecho, lado
+izquierdo y arriba (una foto cada una), y hasta dos detalles de algo que ya
+traía, con una nota de qué es. Tampoco rotan: si se soltaran solas, un rayón
+nuevo se podría tapar tomando fotos hasta que se fuera la vieja. Para repetir
+un ángulo hay que borrar la foto, y el borrado queda en la bitácora con el
+nombre de quien lo hizo. Pantalla: `components/PanelEntregaMoto.tsx`.
 
 **Las imágenes viven en la base de datos.** Antes se escribían en `public/`,
 que servía cuando esto corría en un solo punto de caja con su disco. En Vercel
