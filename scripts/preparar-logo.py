@@ -157,6 +157,118 @@ def quitar_fondo(original: Image.Image) -> Image.Image:
 
 
 # ---------------------------------------------------------------------------
+# El cajon de repartos, mas grande
+# ---------------------------------------------------------------------------
+#
+# Lo que el logo tiene que decir primero es "servicio express", y el cajon es
+# lo que lo dice. Se agranda, se mete hasta la mitad de la ventana de la
+# cabina y sale mas a la derecha del tren, como lo marco el negocio.
+#
+# En el dibujo original el cajon va DETRAS de la cabina: el techo le tapa la
+# parte de abajo del costado. Para ponerlo delante hay que inventarle esa
+# parte que nunca se dibujo, y su contorno.
+#
+# Coordenadas sobre la imagen ya recortada por quitar_fondo().
+
+# La cabina, que tapa el costado del cajon: su borde sigue el contorno oscuro
+# del techo y baja por la pared de atras.
+CABINA = [(1380, 508), (1445, 508), (1500, 516), (1560, 543), (1605, 576),
+          (1632, 618), (1652, 678), (1656, 880)]
+
+# El cajon original. Abajo termina en 841: lo que sigue es la repisa gris y la
+# punta del soporte, que son del tren y se quedan donde estan.
+CAJON = (1438, 400, 841)            # x izquierda, y arriba, y abajo
+CAJON_BORDE = (1438, 1453)          # contorno izquierdo original
+CAJON_FRENTE_X = 1690               # donde empieza la cara con el texto
+CAJON_COLUMNA_COSTADO = 1672        # tramo de costado que si se ve
+CAJON_COSTADO_DESDE_Y = 480         # desde aqui el costado se reconstruye
+CAJON_CONTORNO_DESDE_Y = 470        # y su contorno, solapado con el original
+
+# Donde queda el cajon nuevo. El frente con el texto solo se escala, para que
+# "REPARTOS" no se deforme; lo que se alarga es el costado, que es liso.
+CAJON_ESCALA = 1.15
+CAJON_NUEVO_IZQUIERDA = 1400        # la mitad de la ventana
+CAJON_NUEVO_DERECHA = 2150          # sale del tren hacia la derecha
+CAJON_NUEVO_ABAJO = 885             # tapa la repisa gris que asomaba debajo
+
+
+def agrandar_cajon(logo: Image.Image) -> Image.Image:
+    ancho, alto = logo.size
+    pixeles = np.array(logo)
+
+    mascara = Image.new('L', (ancho, alto), 0)
+    ImageDraw.Draw(mascara).polygon(
+        CABINA + [(CABINA[-1][0], alto), (CABINA[0][0], alto)], fill=255
+    )
+    cabina = np.array(mascara) > 0
+
+    x0, y0, y1 = CAJON
+    en_caja = np.zeros((alto, ancho), bool)
+    en_caja[y0:y1, x0:] = True
+    cajon = en_caja & (pixeles[:, :, 3] > 0) & ~cabina
+
+    capa = np.zeros_like(pixeles)
+    capa[cajon] = pixeles[cajon]
+
+    # El costado se reconstruye fila por fila con el color del tramo que si
+    # se ve. Lo que habia ahi era en parte el techo de la cabina.
+    for y in range(CAJON_COSTADO_DESDE_Y, y1):
+        capa[y, CAJON_BORDE[1]:CAJON_COLUMNA_COSTADO] = pixeles[y, CAJON_COLUMNA_COSTADO]
+        capa[y, CAJON_BORDE[1]:CAJON_COLUMNA_COSTADO, 3] = 255
+
+    # Contorno izquierdo y de abajo, que antes no hacia falta.
+    borde = np.array([*CONTORNO, 255], np.uint8)
+    capa[CAJON_CONTORNO_DESDE_Y:y1, CAJON_BORDE[0]:CAJON_BORDE[1]] = borde
+    capa[y1 - 15:y1, CAJON_BORDE[0]:CAJON_COLUMNA_COSTADO] = borde
+
+    caja_img = Image.fromarray(capa, 'RGBA').crop((x0, y0, ancho, y1))
+    caja_img = caja_img.crop(caja_img.getbbox())
+
+    # Esquina de abajo a la izquierda redondeada, como la de arriba.
+    radio = 22
+    redondeo = Image.new('L', caja_img.size, 255)
+    rd = ImageDraw.Draw(redondeo)
+    rd.rectangle([0, caja_img.height - radio, radio, caja_img.height], fill=0)
+    rd.pieslice([0, caja_img.height - 2 * radio, 2 * radio, caja_img.height], 90, 180, fill=255)
+    a = np.array(caja_img)
+    a[:, :, 3] = np.minimum(a[:, :, 3], np.array(redondeo))
+    caja_img = Image.fromarray(a, 'RGBA')
+
+    # Tres tramos: contorno, costado (se alarga) y frente (no se deforma).
+    corte_borde = CAJON_BORDE[1] - CAJON_BORDE[0]
+    corte_frente = CAJON_FRENTE_X - CAJON_BORDE[0]
+    tramo_borde = caja_img.crop((0, 0, corte_borde, caja_img.height))
+    tramo_costado = caja_img.crop((corte_borde, 0, corte_frente, caja_img.height))
+    tramo_frente = caja_img.crop((corte_frente, 0, caja_img.width, caja_img.height))
+
+    total = int((CAJON_NUEVO_DERECHA - CAJON_NUEVO_IZQUIERDA) / CAJON_ESCALA)
+    ancho_costado = total - tramo_borde.width - tramo_frente.width
+    tramo_costado = tramo_costado.resize((ancho_costado, caja_img.height), Image.LANCZOS)
+
+    largo = Image.new('RGBA', (total, caja_img.height), (0, 0, 0, 0))
+    largo.paste(tramo_borde, (0, 0))
+    largo.paste(tramo_costado, (tramo_borde.width, 0))
+    largo.paste(tramo_frente, (tramo_borde.width + ancho_costado, 0))
+
+    grande = largo.resize(
+        (int(largo.width * CAJON_ESCALA), int(largo.height * CAJON_ESCALA)), Image.LANCZOS
+    )
+    arriba = CAJON_NUEVO_ABAJO - grande.height
+
+    resto = pixeles.copy()
+    resto[cajon, 3] = 0
+    resto[cajon, :3] = CONTORNO
+
+    ancho_final = max(ancho, CAJON_NUEVO_IZQUIERDA + grande.width)
+    sube = max(0, -arriba)
+    final = Image.new('RGBA', (ancho_final, alto + sube), (0, 0, 0, 0))
+    final.alpha_composite(Image.fromarray(resto, 'RGBA'), (0, sube))
+    # Delante de la cabina: tapar parte de la ventana es a proposito.
+    final.alpha_composite(grande, (CAJON_NUEVO_IZQUIERDA, arriba + sube))
+    return final
+
+
+# ---------------------------------------------------------------------------
 # La via se cambia por una carretera
 # ---------------------------------------------------------------------------
 #
@@ -335,6 +447,11 @@ def main() -> None:
 
     logo = quitar_fondo(original)
     print(f'Recortado: {logo.width} x {logo.height}')
+
+    # El cajon va antes que la carretera: sus coordenadas son las de la
+    # imagen recortada, y la carretera vuelve a recortar al final.
+    logo = agrandar_cajon(logo)
+    print(f'Cajon agrandado: {logo.width} x {logo.height}')
 
     logo = cambiar_via_por_carretera(logo)
     print('Via cambiada por carretera.')
