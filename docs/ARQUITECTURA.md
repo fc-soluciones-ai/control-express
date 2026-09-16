@@ -654,8 +654,8 @@ las fotos pasaron a la base de datos y esa carpeta quedó sin uso.
 ## 15. La gasolina leída de las fotos
 
 El repartidor ya no teclea el kilometraje ni el monto. Toma dos fotos, la del
-odómetro y la de la factura, y el servidor se las pasa a Claude (API de
-Anthropic). Claude devuelve el kilometraje, el total, la fecha, la gasolinera,
+odómetro y la de la factura, y el servidor se las pasa a la IA: Gemini
+(Google) si está su clave, y si no Claude (Anthropic). La IA devuelve el kilometraje, el total, la fecha, la gasolinera,
 el número de factura y los litros. La pantalla los muestra y no deja cambiarlos.
 
 Código: `src/server/services/lectura-ia.ts`. Prueba: `npm run test:lectura`,
@@ -674,7 +674,7 @@ con un lector falso que no llama a la IA.
 4. La factura tiene que ser de los últimos 3 días. El odómetro no retrocede ni
    salta más de 2.500 km. Una lectura de hace más de 2 horas ya no sirve.
 5. Las dos fotos pasan a la evidencia del gasto, y el gasto queda con
-   `origen = 'IA'`. Si Claude notó algo raro (una foto tomada a una pantalla,
+   `origen = 'IA'`. Si la IA notó algo raro (una foto tomada a una pantalla,
    por ejemplo), queda en `observacion`.
 
 Lo que no se puede detectar desde aquí es una factura ajena que nunca se
@@ -686,11 +686,16 @@ la caja desde la flota, como antes.
 **Configuración**
 
 ```
-npm run ia:clave                        # la clave, con entrada oculta, a .env
+npm run ia:clave                        # la clave (Gemini o Claude), oculta, a .env
 npm run vercel:variables -- --aplicar   # la sube a Vercel; luego volver a desplegar
 ```
 
-Sin `ANTHROPIC_API_KEY`, la pantalla del repartidor avisa que la lectura no
-está configurada y no deja registrar. El modelo es `claude-sonnet-5` y se
-puede cambiar con `IA_MODELO`. Hay un tope de 30 fotos por hora por
+Sin `GEMINI_API_KEY` ni `ANTHROPIC_API_KEY`, la pantalla del repartidor avisa
+que la lectura no está configurada y no deja registrar. Los modelos son
+`gemini-flash-latest` y `claude-sonnet-5`; se cambian con `IA_MODELO`.
+
+La clave de Gemini se saca gratis en aistudio.google.com. En la capa gratuita
+Google puede usar lo que se le manda para mejorar sus productos, y aquí van
+facturas del negocio: conviene activar la facturación del proyecto en Google
+Cloud, que además quita los límites de uso gratuitos. Hay un tope de 30 fotos por hora por
 repartidor, porque cada lectura cuesta.

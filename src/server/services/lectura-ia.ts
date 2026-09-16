@@ -5,8 +5,8 @@
  *
  * Cuando el repartidor tecleaba el kilometraje y el monto, esos numeros eran
  * los que el quisiera: nadie los comparaba con el odometro ni con la factura.
- * Ahora toma dos fotos, el servidor se las pasa a la IA y guarda lo que ella
- * leyo. El repartidor ve el resultado pero no lo puede cambiar.
+ * Ahora toma dos fotos, el servidor se las pasa a la IA (Gemini o Claude) y
+ * guarda lo que ella leyo. El repartidor ve el resultado pero no lo puede cambiar.
  *
  * COMO SE CIERRA LA PUERTA
  *
@@ -72,10 +72,15 @@ export type Lector = (
 ) => Promise<{ lectura: LecturaCruda; modelo: string }>;
 
 // ---------------------------------------------------------------------------
-// El lector de verdad: la API de Anthropic
+// Los lectores de verdad: Gemini (Google) o Claude (Anthropic)
 // ---------------------------------------------------------------------------
+//
+// Se usa Gemini si esta su clave, y si no Claude. IA_MODELO cambia el modelo
+// del que se este usando.
 
-const MODELO_POR_DEFECTO = 'claude-sonnet-5';
+const MODELO_ANTHROPIC = 'claude-sonnet-5';
+/** Alias que Google mueve al Flash mas reciente: no hay que tocarlo al retirarse uno. */
+const MODELO_GEMINI = 'gemini-flash-latest';
 
 const INSTRUCCIONES: Record<TipoLectura, string> = {
   ODOMETRO:
@@ -100,7 +105,10 @@ const ESQUEMA: Record<TipoLectura, object> = {
     type: 'object',
     properties: {
       legible: { type: 'boolean' },
-      motivo: { type: ['string', 'null'], description: 'Por que no se pudo leer.' },
+      motivo: {
+        type: ['string', 'null'],
+        description: 'Por que no se pudo leer.',
+      },
       kilometraje: { type: ['integer', 'null'] },
       observacion: { type: ['string', 'null'] },
     },
@@ -122,57 +130,47 @@ const ESQUEMA: Record<TipoLectura, object> = {
   },
 };
 
-export function iaConfigurada(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+/**
+ * El mismo esquema en el formato de Gemini: tipos en mayusculas y "nullable"
+ * en lugar de la lista de tipos.
+ */
+function esquemaGemini(esquema: object): object {
+  const { type, properties, required } = esquema as {
+    type: string;
+    properties: Record<string, { type: string | string[]; description?: string }>;
+    required: string[];
+  };
+  return {
+    type: type.toUpperCase(),
+    required,
+    properties: Object.fromEntries(
+      Object.entries(properties).map(([nombre, campo]) => {
+        const tipos = Array.isArray(campo.type) ? campo.type : [campo.type];
+        const tipo = tipos.find((t) => t !== 'null') ?? 'string';
+        return [
+          nombre,
+          {
+            type: tipo.toUpperCase(),
+            nullable: tipos.includes('null'),
+            ...(campo.description ? { description: campo.description } : {}),
+          },
+        ];
+      }),
+    ),
+  };
 }
 
-export const lectorAnthropic: Lector = async (foto, tipo) => {
-  const clave = process.env.ANTHROPIC_API_KEY;
-  if (!clave) {
-    throw new ErrorNegocio(
-      'IA_NO_DISPONIBLE',
-      'La lectura de fotos todavia no esta configurada. Avise a la caja.',
-    );
-  }
-  const modelo = process.env.IA_MODELO || MODELO_POR_DEFECTO;
+export function iaConfigurada(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY);
+}
 
+const SIN_CONFIGURAR = 'La lectura de fotos todavia no esta configurada. Avise a la caja.';
+
+async function pedir(url: string, init: RequestInit): Promise<Response> {
   let respuesta: Response;
   try {
-    respuesta = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': clave,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: modelo,
-        max_tokens: 1024,
-        tools: [
-          {
-            name: 'registrar_lectura',
-            description: 'Registra lo que se leyo en la foto.',
-            input_schema: ESQUEMA[tipo],
-          },
-        ],
-        tool_choice: { type: 'tool', name: 'registrar_lectura' },
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: foto.tipoMime,
-                  data: foto.contenido.toString('base64'),
-                },
-              },
-              { type: 'text', text: INSTRUCCIONES[tipo] },
-            ],
-          },
-        ],
-      }),
+    respuesta = await fetch(url, {
+      ...init,
       signal: AbortSignal.timeout(45_000),
     });
   } catch (e) {
@@ -182,27 +180,127 @@ export const lectorAnthropic: Lector = async (foto, tipo) => {
       'No se pudo leer la foto ahora mismo. Revise la senal e intente de nuevo.',
     );
   }
-
   if (!respuesta.ok) {
     // Solo el estado: el cuerpo puede repetir partes de la peticion.
     console.error('[lectura-ia] estado', respuesta.status);
     throw new ErrorNegocio(
       'IA_NO_DISPONIBLE',
-      respuesta.status === 401
+      [400, 401, 403].includes(respuesta.status)
         ? 'La lectura de fotos esta mal configurada. Avise a la caja.'
         : 'No se pudo leer la foto ahora mismo. Intente de nuevo en un momento.',
     );
   }
+  return respuesta;
+}
+
+export const lectorGemini: Lector = async (foto, tipo) => {
+  const clave = process.env.GEMINI_API_KEY;
+  if (!clave) throw new ErrorNegocio('IA_NO_DISPONIBLE', SIN_CONFIGURAR);
+  const modelo = process.env.IA_MODELO || MODELO_GEMINI;
+
+  const respuesta = await pedir(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`,
+    {
+      method: 'POST',
+      // La clave va en la cabecera, no en la direccion: las direcciones
+      // quedan en las bitacoras.
+      headers: { 'x-goog-api-key': clave, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inline_data: {
+                  mime_type: foto.tipoMime,
+                  data: foto.contenido.toString('base64'),
+                },
+              },
+              { text: INSTRUCCIONES[tipo] },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: 'application/json',
+          responseSchema: esquemaGemini(ESQUEMA[tipo]),
+        },
+      }),
+    },
+  );
+
+  const cuerpo = (await respuesta.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const texto = cuerpo.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+  try {
+    return { lectura: JSON.parse(texto) as LecturaCruda, modelo };
+  } catch {
+    return {
+      lectura: { legible: false, motivo: 'No se obtuvo respuesta.' },
+      modelo,
+    };
+  }
+};
+
+export const lectorAnthropic: Lector = async (foto, tipo) => {
+  const clave = process.env.ANTHROPIC_API_KEY;
+  if (!clave) throw new ErrorNegocio('IA_NO_DISPONIBLE', SIN_CONFIGURAR);
+  const modelo = process.env.IA_MODELO || MODELO_ANTHROPIC;
+
+  const respuesta = await pedir('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': clave,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: modelo,
+      max_tokens: 1024,
+      tools: [
+        {
+          name: 'registrar_lectura',
+          description: 'Registra lo que se leyo en la foto.',
+          input_schema: ESQUEMA[tipo],
+        },
+      ],
+      tool_choice: { type: 'tool', name: 'registrar_lectura' },
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: foto.tipoMime,
+                data: foto.contenido.toString('base64'),
+              },
+            },
+            { type: 'text', text: INSTRUCCIONES[tipo] },
+          ],
+        },
+      ],
+    }),
+  });
 
   const cuerpo = (await respuesta.json()) as {
     content?: Array<{ type: string; input?: LecturaCruda }>;
   };
   const uso = cuerpo.content?.find((c) => c.type === 'tool_use');
   if (!uso?.input) {
-    return { lectura: { legible: false, motivo: 'No se obtuvo respuesta.' }, modelo };
+    return {
+      lectura: { legible: false, motivo: 'No se obtuvo respuesta.' },
+      modelo,
+    };
   }
   return { lectura: uso.input, modelo };
 };
+
+/** Gemini si tiene clave; si no, Claude. */
+export const lectorPorDefecto: Lector = (foto, tipo) =>
+  process.env.GEMINI_API_KEY ? lectorGemini(foto, tipo) : lectorAnthropic(foto, tipo);
 
 // ---------------------------------------------------------------------------
 // Leer una foto
@@ -249,13 +347,21 @@ function normalizar(tipo: TipoLectura, cruda: LecturaCruda) {
   };
 
   if (!cruda.legible) {
-    return { ...base, legible: false, motivo: base.motivo ?? 'No se pudo leer.' };
+    return {
+      ...base,
+      legible: false,
+      motivo: base.motivo ?? 'No se pudo leer.',
+    };
   }
 
   if (tipo === 'ODOMETRO') {
     const km = Number(cruda.kilometraje);
     if (!Number.isInteger(km) || km <= 0 || km > 999_999) {
-      return { ...base, legible: false, motivo: 'No se distingue el kilometraje.' };
+      return {
+        ...base,
+        legible: false,
+        motivo: 'No se distingue el kilometraje.',
+      };
     }
     return { ...base, legible: true, kilometraje: km };
   }
@@ -263,10 +369,18 @@ function normalizar(tipo: TipoLectura, cruda: LecturaCruda) {
   const total = Number(cruda.totalColones);
   const fecha = fechaDeFactura(cruda.fecha);
   if (!Number.isFinite(total) || total <= 0 || total > 1_000_000) {
-    return { ...base, legible: false, motivo: 'No se distingue el total de la factura.' };
+    return {
+      ...base,
+      legible: false,
+      motivo: 'No se distingue el total de la factura.',
+    };
   }
   if (!fecha) {
-    return { ...base, legible: false, motivo: 'No se distingue la fecha de la factura.' };
+    return {
+      ...base,
+      legible: false,
+      motivo: 'No se distingue la fecha de la factura.',
+    };
   }
   const litros = Number(cruda.litros);
   return {
@@ -298,7 +412,9 @@ function paraPantalla(fila: {
     ...fila,
     tipo: fila.tipo as TipoLectura,
     fechaFactura: fila.fechaFactura
-      ? fila.fechaFactura.toLocaleDateString('es-CR', { timeZone: 'America/Costa_Rica' })
+      ? fila.fechaFactura.toLocaleDateString('es-CR', {
+          timeZone: 'America/Costa_Rica',
+        })
       : null,
   };
 }
@@ -319,7 +435,7 @@ async function motoDe(choferId: string): Promise<{ placa: string; kilometrajeAct
 
 export async function leerFoto(
   entrada: { choferId: string; tipo: TipoLectura; contenido: Buffer },
-  lector: Lector = lectorAnthropic,
+  lector: Lector = lectorPorDefecto,
 ): Promise<LecturaParaPantalla> {
   if (entrada.tipo !== 'ODOMETRO' && entrada.tipo !== 'FACTURA') {
     throw new ErrorNegocio('DATOS_INVALIDOS', 'No se sabe que muestra esa foto.');
@@ -353,10 +469,16 @@ export async function leerFoto(
     select: { id: true },
   });
   if (yaUsada) {
-    throw new ErrorNegocio('FACTURA_REPETIDA', 'Esa foto ya se uso en otro registro. Tome una nueva.');
+    throw new ErrorNegocio(
+      'FACTURA_REPETIDA',
+      'Esa foto ya se uso en otro registro. Tome una nueva.',
+    );
   }
 
-  const { lectura, modelo } = await lector({ contenido: entrada.contenido, tipoMime }, entrada.tipo);
+  const { lectura, modelo } = await lector(
+    { contenido: entrada.contenido, tipoMime },
+    entrada.tipo,
+  );
   const valores = normalizar(entrada.tipo, lectura);
 
   const fila = await prisma.lecturaFoto.create({
@@ -388,7 +510,10 @@ async function tomarLectura(id: string, choferId: string, tipo: TipoLectura, cla
     throw new ErrorNegocio('FOTO_ILEGIBLE', 'Una de las fotos no se pudo leer. Tomela de nuevo.');
   }
   if (fila.usadaEn && fila.claveUso !== clave) {
-    throw new ErrorNegocio('FACTURA_REPETIDA', 'Esa foto ya se uso en otro registro. Tome una nueva.');
+    throw new ErrorNegocio(
+      'FACTURA_REPETIDA',
+      'Esa foto ya se uso en otro registro. Tome una nueva.',
+    );
   }
   if (!fila.usadaEn && Date.now() - fila.creadaEn.getTime() > VIGENCIA_LECTURA_MS) {
     throw new ErrorNegocio('DATOS_INVALIDOS', 'Las fotos son de hace rato. Tomelas de nuevo.');
@@ -403,9 +528,15 @@ async function reservar(id: string, clave: string): Promise<void> {
     data: { usadaEn: new Date(), claveUso: clave },
   });
   if (count === 1) return;
-  const fila = await prisma.lecturaFoto.findUnique({ where: { id }, select: { claveUso: true } });
+  const fila = await prisma.lecturaFoto.findUnique({
+    where: { id },
+    select: { claveUso: true },
+  });
   if (fila?.claveUso !== clave) {
-    throw new ErrorNegocio('FACTURA_REPETIDA', 'Esa foto ya se uso en otro registro. Tome una nueva.');
+    throw new ErrorNegocio(
+      'FACTURA_REPETIDA',
+      'Esa foto ya se uso en otro registro. Tome una nueva.',
+    );
   }
 }
 
@@ -422,12 +553,23 @@ export async function registrarGasolinaLeida(entrada: {
   lecturaFacturaId: string;
   claveIdempotencia: string;
   ahora?: Date;
-}): Promise<{ id: string; placa: string; kilometraje: number; monto: number; repetido: boolean }> {
+}): Promise<{
+  id: string;
+  placa: string;
+  kilometraje: number;
+  monto: number;
+  repetido: boolean;
+}> {
   const clave = entrada.claveIdempotencia;
   if (!clave) throw new ErrorNegocio('DATOS_INVALIDOS', 'Falta la clave del envio.');
   const ahora = entrada.ahora ?? new Date();
 
-  const odometro = await tomarLectura(entrada.lecturaOdometroId, entrada.choferId, 'ODOMETRO', clave);
+  const odometro = await tomarLectura(
+    entrada.lecturaOdometroId,
+    entrada.choferId,
+    'ODOMETRO',
+    clave,
+  );
   const factura = await tomarLectura(entrada.lecturaFacturaId, entrada.choferId, 'FACTURA', clave);
   const km = odometro.kilometraje!;
   const monto = factura.monto!;
@@ -442,7 +584,10 @@ export async function registrarGasolinaLeida(entrada: {
   if (!yaRegistrado) {
     const dias = (ahora.getTime() - fecha.getTime()) / 86_400_000;
     if (dias < -1) {
-      throw new ErrorNegocio('DATOS_INVALIDOS', 'La factura tiene una fecha futura. Revise la foto.');
+      throw new ErrorNegocio(
+        'DATOS_INVALIDOS',
+        'La factura tiene una fecha futura. Revise la foto.',
+      );
     }
     if (dias > DIAS_MAXIMOS_FACTURA + 0.5) {
       throw new ErrorNegocio(
@@ -464,7 +609,11 @@ export async function registrarGasolinaLeida(entrada: {
         categoria: 'GASOLINA',
         OR: [
           ...(factura.numeroFactura ? [{ numeroFactura: factura.numeroFactura }] : []),
-          { fechaFactura: fecha, costoTotal: monto, tallerOProveedor: factura.gasolinera },
+          {
+            fechaFactura: fecha,
+            costoTotal: monto,
+            tallerOProveedor: factura.gasolinera,
+          },
         ],
       },
       select: { id: true },
