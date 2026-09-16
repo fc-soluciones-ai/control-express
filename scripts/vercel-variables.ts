@@ -105,7 +105,10 @@ function main(): void {
       // --force reemplaza en un solo paso. Borrar y volver a agregar dejaba
       // la variable en el aire si el segundo paso fallaba, y con DATABASE_URL
       // eso significa una aplicacion en produccion sin base de datos.
-      vercel(['env', 'add', variable.nombre, entorno, '--force', '--sensitive'], valor);
+      // Vercel no acepta variables "sensitive" en development: ahi van como
+      // normales, que es donde ya estaban.
+      const sensible = entorno === 'development' ? [] : ['--sensitive'];
+      vercel(['env', 'add', variable.nombre, entorno, '--force', ...sensible], valor);
     }
   }
 
