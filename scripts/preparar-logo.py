@@ -172,22 +172,24 @@ def quitar_fondo(original: Image.Image) -> Image.Image:
 #
 # Coordenadas sobre la imagen ya recortada por quitar_fondo().
 
-# La cabina, que se queda donde esta: su borde sigue el contorno oscuro del
-# techo, desde la chimenea, y baja por la pared de atras. Sirve para no
-# borrarla junto al cajon, y para pintarla encima del costado.
-CABINA = [(1190, 508), (1380, 508), (1445, 508), (1500, 516), (1560, 543), (1605, 576),
-          (1632, 618), (1652, 678), (1656, 880)]
+# La cabina, que se queda donde esta: su borde sigue por FUERA el contorno
+# oscuro del techo, desde la chimenea, incluida la punta curva de atras que
+# se levanta delante del cajon, y baja por la pared de atras. Medido columna
+# por columna: si corta por dentro, el techo pierde su borde y su brillo.
+# Sirve para no borrarla junto al cajon, y para pintarla encima del costado.
+CABINA = [(1190, 515), (1440, 515), (1450, 518), (1480, 519), (1500, 521), (1520, 524),
+          (1540, 529), (1560, 536), (1580, 545), (1600, 557), (1620, 573), (1630, 585),
+          (1640, 598), (1646, 609), (1650, 622), (1652, 678), (1656, 880)]
 
 # El cajon original que se borra: de x 1438 a la derecha, de y 400 a 841.
 CAJON_ORIGINAL = (1438, 400, 841)
 
 # El frente, la cara con el texto: 50% mas grande que la primera version
-# metida en el tren. Tan grande ya no cabe detras de la cabina, asi que el
-# frente va DELANTE de la parte de atras de la cabina y le tapa un poco la
-# ventana. El costado si se aleja por DETRAS del techo, como en el dibujo
-# original: eso es lo que hace que el cajon se vea parte del tren. Abajo se
-# apoya en la repisa gris y el soporte.
-FRENTE_IZQUIERDA, FRENTE_DERECHA = 1560, 2060
+# metida en el tren. Todo el cajon va DETRAS de la cabina, como en el dibujo
+# original: la punta curva del techo se levanta por delante y le tapa la
+# esquina de abajo a la izquierda. Eso es lo que hace que se vea parte del
+# tren. Abajo se apoya en la repisa gris y el soporte.
+FRENTE_IZQUIERDA, FRENTE_DERECHA = 1610, 2110
 FRENTE_ARRIBA = (236, 224)          # y de arriba en cada extremo
 FRENTE_ALTO = 606
 ESQUINA_ARRIBA = 120                # la esquina redondeada de arriba a la derecha
@@ -209,7 +211,10 @@ LETRA = (255, 222, 205)
 CONTORNO_LETRA = (95, 28, 23)
 FUENTE = Path(r'C:\Windows\Fonts\bahnschrift.ttf')
 TEXTO = 'EXPRESS'
-TEXTO_ANCHO = 0.84                  # parte del frente que ocupa el texto
+TEXTO_ANCHO = 0.88                  # parte de lo visible que ocupa el texto
+# El texto se centra en lo que la cabina no tapa: a la derecha de la pared de
+# atras.
+TEXTO_DESDE_X = 1664
 
 AUMENTO = 2  # se dibuja al doble y se reduce, para bordes suaves
 
@@ -261,8 +266,7 @@ def _rellenar(lienzo: Image.Image, poligono, arriba, abajo) -> None:
     lienzo.alpha_composite(capa)
 
 
-def dibujar_cajon(ancho: int, alto: int) -> tuple[Image.Image, Image.Image]:
-    """El cajon, y la mascara de su frente con el contorno incluido."""
+def dibujar_cajon(ancho: int, alto: int) -> Image.Image:
     k = AUMENTO
     dx, dy = PROFUNDIDAD
 
@@ -331,7 +335,7 @@ def dibujar_cajon(ancho: int, alto: int) -> tuple[Image.Image, Image.Image]:
     d.line([z(p) for p in media], fill=BRILLO_TAPA, width=6 * k)
 
     # El texto, centrado en el frente y tan grande como quepa a lo ancho.
-    ancho_util = (FRENTE_DERECHA - FRENTE_IZQUIERDA) * TEXTO_ANCHO
+    ancho_util = (FRENTE_DERECHA - TEXTO_DESDE_X) * TEXTO_ANCHO
     tamano = 200
     while True:
         fuente = ImageFont.truetype(str(FUENTE), tamano * k)
@@ -340,16 +344,12 @@ def dibujar_cajon(ancho: int, alto: int) -> tuple[Image.Image, Image.Image]:
         if caja[2] - caja[0] <= ancho_util * k or tamano <= 40:
             break
         tamano -= 4
-    cx = (FRENTE_IZQUIERDA + FRENTE_DERECHA - 10) / 2
+    cx = (TEXTO_DESDE_X + FRENTE_DERECHA - 16) / 2
     cy = (_y_arriba(cx) + _y_abajo(cx)) / 2 + 6
     d.text(z((cx, cy)), TEXTO, font=fuente, anchor='mm',
            fill=LETRA, stroke_width=7 * k, stroke_fill=CONTORNO_LETRA)
 
-    solo_frente = Image.new('L', lienzo.size, 0)
-    ImageDraw.Draw(solo_frente).polygon(caras['frente'], fill=255)
-    solo_frente = solo_frente.filter(ImageFilter.MaxFilter(GROSOR_CONTORNO * k | 1))
-    return (lienzo.resize((ancho, alto), Image.LANCZOS),
-            solo_frente.resize((ancho, alto), Image.LANCZOS))
+    return lienzo.resize((ancho, alto), Image.LANCZOS)
 
 
 def agrandar_cajon(logo: Image.Image) -> Image.Image:
@@ -372,18 +372,16 @@ def agrandar_cajon(logo: Image.Image) -> Image.Image:
     ancho_final = max(ancho, FRENTE_DERECHA + GROSOR_CONTORNO)
     final = Image.new('RGBA', (ancho_final, alto), (0, 0, 0, 0))
     final.alpha_composite(Image.fromarray(pixeles, 'RGBA'))
-    cajon_nuevo, frente = dibujar_cajon(ancho_final, alto)
+    cajon_nuevo = dibujar_cajon(ancho_final, alto)
 
-    # El costado va detras de la cabina, como en el dibujo original: el techo
-    # le tapa la parte de abajo. La cabina se vuelve a pintar encima, menos
-    # donde esta el frente, que va delante. La mascara se engorda un poco para
-    # que el contorno del techo quede entero.
+    # Detras de la cabina, como en el dibujo original. La cabina se vuelve a
+    # pintar encima; la mascara se engorda un poco para que el contorno del
+    # techo quede entero.
     final.alpha_composite(cajon_nuevo)
     encima = Image.fromarray(pixeles, 'RGBA')
     tapa_cabina = mascara.filter(ImageFilter.MaxFilter(CABINA_MARGEN * 2 + 1))
-    alfa = np.minimum(pixeles[:, :, 3], np.array(tapa_cabina)).astype(np.float32)
-    alfa *= 1 - np.array(frente, np.float32)[:alto, :ancho] / 255
-    encima.putalpha(Image.fromarray(alfa.astype(np.uint8), 'L'))
+    encima.putalpha(Image.fromarray(
+        np.minimum(pixeles[:, :, 3], np.array(tapa_cabina)), 'L'))
     lienzo_cabina = Image.new('RGBA', (ancho_final, alto), (0, 0, 0, 0))
     lienzo_cabina.alpha_composite(encima)
     final.alpha_composite(lienzo_cabina)
