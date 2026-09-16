@@ -161,8 +161,8 @@ def quitar_fondo(original: Image.Image) -> Image.Image:
 # ---------------------------------------------------------------------------
 #
 # Lo que el logo tiene que decir primero es "servicio express", y el cajon es
-# lo que lo dice. Va mas grande, metido hasta la mitad de la ventana de la
-# cabina y saliendo del tren hacia la derecha, como lo marco el negocio.
+# lo que lo dice, con la sola palabra EXPRESS. Va mas grande, montado sobre la
+# cabina y tapando parte de la ventana, como lo marco el negocio.
 #
 # No se estira el cajon original: estirar su costado lo dejaba torcido y con
 # cara de pegado. Se borra y se dibuja de nuevo como una caja de verdad: un
@@ -180,16 +180,20 @@ CABINA = [(1380, 508), (1445, 508), (1500, 516), (1560, 543), (1605, 576),
 # El cajon original que se borra: de x 1438 a la derecha, de y 400 a 841.
 CAJON_ORIGINAL = (1438, 400, 841)
 
-# El frente, la cara con el texto. Sube un poco hacia la derecha, como la
-# carretera, para que la caja acompane la inclinacion del tren.
-FRENTE_IZQUIERDA, FRENTE_DERECHA = 1560, 2140
-FRENTE_ARRIBA = (474, 456)          # y de arriba en cada extremo
+# El frente, la cara con el texto. Va montado sobre la cabina y termina donde
+# termina el tren: colgado a la derecha parecia pegado aparte. Sube un poco
+# hacia la derecha, como la carretera.
+FRENTE_IZQUIERDA, FRENTE_DERECHA = 1420, 1985
+FRENTE_ARRIBA = (486, 470)          # y de arriba en cada extremo
 FRENTE_ALTO = 410
 ESQUINA_ARRIBA = 95                 # la esquina redondeada de arriba a la derecha
 ESQUINA_ABAJO = 26
 # Hacia donde se aleja la caja. Con el costado corto la caja se lee larga.
-PROFUNDIDAD = (-150, -44)
+PROFUNDIDAD = (-120, -40)
 GROSOR_CONTORNO = 13                # igual de grueso que el del tren
+SOMBRA_CORRIMIENTO = (10, 16)
+SOMBRA_DIFUSION = 10
+SOMBRA_FUERZA = 0.55
 
 FRENTE_CLARO = (205, 42, 42)
 FRENTE_OSCURO = (160, 28, 36)
@@ -202,6 +206,8 @@ BRILLO_TAPA = (240, 140, 124)
 LETRA = (255, 222, 205)
 CONTORNO_LETRA = (95, 28, 23)
 FUENTE = Path(r'C:\Windows\Fonts\bahnschrift.ttf')
+TEXTO = 'EXPRESS'
+TEXTO_ANCHO = 0.80                  # parte del frente que ocupa el texto
 
 AUMENTO = 2  # se dibuja al doble y se reduce, para bordes suaves
 
@@ -321,16 +327,20 @@ def dibujar_cajon(ancho: int, alto: int) -> Image.Image:
     media = [(p[0] + dx * 0.55, p[1] + dy * 0.55) for p in borde_arriba[:2]]
     d.line([z(p) for p in media], fill=BRILLO_TAPA, width=6 * k)
 
-    # El texto, centrado en el frente.
-    grande = ImageFont.truetype(str(FUENTE), 122 * k)
-    grande.set_variation_by_name('Bold Condensed')
-    chica = ImageFont.truetype(str(FUENTE), 74 * k)
-    chica.set_variation_by_name('Bold Condensed')
-    cx = (FRENTE_IZQUIERDA + FRENTE_DERECHA - 20) / 2
-    cy = (_y_arriba(cx) + _y_abajo(cx)) / 2
-    for texto, fuente, corrimiento in (('REPARTOS', grande, -56), ('ENTREGA RÁPIDA', chica, 66)):
-        d.text(z((cx, cy + corrimiento)), texto, font=fuente, anchor='mm',
-               fill=LETRA, stroke_width=6 * k, stroke_fill=CONTORNO_LETRA)
+    # El texto, centrado en el frente y tan grande como quepa a lo ancho.
+    ancho_util = (FRENTE_DERECHA - FRENTE_IZQUIERDA) * TEXTO_ANCHO
+    tamano = 200
+    while True:
+        fuente = ImageFont.truetype(str(FUENTE), tamano * k)
+        fuente.set_variation_by_name('Bold Condensed')
+        caja = d.textbbox((0, 0), TEXTO, font=fuente, stroke_width=7 * k)
+        if caja[2] - caja[0] <= ancho_util * k or tamano <= 40:
+            break
+        tamano -= 4
+    cx = (FRENTE_IZQUIERDA + FRENTE_DERECHA - 10) / 2
+    cy = (_y_arriba(cx) + _y_abajo(cx)) / 2 + 6
+    d.text(z((cx, cy)), TEXTO, font=fuente, anchor='mm',
+           fill=LETRA, stroke_width=7 * k, stroke_fill=CONTORNO_LETRA)
 
     return lienzo.resize((ancho, alto), Image.LANCZOS)
 
@@ -355,8 +365,21 @@ def agrandar_cajon(logo: Image.Image) -> Image.Image:
     ancho_final = max(ancho, FRENTE_DERECHA + GROSOR_CONTORNO)
     final = Image.new('RGBA', (ancho_final, alto), (0, 0, 0, 0))
     final.alpha_composite(Image.fromarray(pixeles, 'RGBA'))
+    cajon_nuevo = dibujar_cajon(ancho_final, alto)
+
+    # Sombra del cajon sobre la cabina: sin ella parece flotar encima. Solo
+    # cae sobre el tren, no sobre el fondo transparente.
+    sombra = Image.new('L', (ancho_final, alto), 0)
+    sombra.paste(cajon_nuevo.getchannel('A'), SOMBRA_CORRIMIENTO)
+    sombra = sombra.filter(ImageFilter.GaussianBlur(SOMBRA_DIFUSION))
+    alfa = (np.array(sombra, np.float32) * SOMBRA_FUERZA
+            * (np.array(final.getchannel('A'), np.float32) / 255))
+    capa = Image.new('RGBA', (ancho_final, alto), (*CONTORNO, 0))
+    capa.putalpha(Image.fromarray(alfa.astype(np.uint8), 'L'))
+    final.alpha_composite(capa)
+
     # Delante de la cabina: tapar parte de la ventana es a proposito.
-    final.alpha_composite(dibujar_cajon(ancho_final, alto))
+    final.alpha_composite(cajon_nuevo)
     return final
 
 
