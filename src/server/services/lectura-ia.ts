@@ -79,8 +79,12 @@ export type Lector = (
 // del que se este usando.
 
 const MODELO_ANTHROPIC = 'claude-sonnet-5';
-/** Alias que Google mueve al Flash mas reciente: no hay que tocarlo al retirarse uno. */
-const MODELO_GEMINI = 'gemini-flash-latest';
+/**
+ * Alias que Google mueve al Flash mas reciente: no hay que tocarlo cada vez
+ * que retira uno. Los modelos nuevos a veces responden "saturado" por horas,
+ * asi que si el primero no atiende se prueba el siguiente.
+ */
+const MODELOS_GEMINI = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 
 const INSTRUCCIONES: Record<TipoLectura, string> = {
   ODOMETRO:
@@ -166,12 +170,19 @@ export function iaConfigurada(): boolean {
 
 const SIN_CONFIGURAR = 'La lectura de fotos todavia no esta configurada. Avise a la caja.';
 
-async function pedir(url: string, init: RequestInit): Promise<Response> {
+/** El proveedor esta saturado: vale la pena probar con otro modelo. */
+const OCUPADO = [429, 500, 503];
+
+async function pedir(
+  url: string,
+  init: RequestInit,
+  opciones: { segundos?: number; dejarPasar?: number[] } = {},
+): Promise<Response> {
   let respuesta: Response;
   try {
     respuesta = await fetch(url, {
       ...init,
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout((opciones.segundos ?? 45) * 1000),
     });
   } catch (e) {
     console.error('[lectura-ia] sin respuesta', e instanceof Error ? e.name : e);
@@ -180,7 +191,7 @@ async function pedir(url: string, init: RequestInit): Promise<Response> {
       'No se pudo leer la foto ahora mismo. Revise la senal e intente de nuevo.',
     );
   }
-  if (!respuesta.ok) {
+  if (!respuesta.ok && !opciones.dejarPasar?.includes(respuesta.status)) {
     // Solo el estado: el cuerpo puede repetir partes de la peticion.
     console.error('[lectura-ia] estado', respuesta.status);
     throw new ErrorNegocio(
@@ -196,38 +207,54 @@ async function pedir(url: string, init: RequestInit): Promise<Response> {
 export const lectorGemini: Lector = async (foto, tipo) => {
   const clave = process.env.GEMINI_API_KEY;
   if (!clave) throw new ErrorNegocio('IA_NO_DISPONIBLE', SIN_CONFIGURAR);
-  const modelo = process.env.IA_MODELO || MODELO_GEMINI;
+  const modelos = process.env.IA_MODELO ? [process.env.IA_MODELO] : MODELOS_GEMINI;
 
-  const respuesta = await pedir(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`,
-    {
-      method: 'POST',
-      // La clave va en la cabecera, no en la direccion: las direcciones
-      // quedan en las bitacoras.
-      headers: { 'x-goog-api-key': clave, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inline_data: {
-                  mime_type: foto.tipoMime,
-                  data: foto.contenido.toString('base64'),
+  let respuesta: Response | null = null;
+  let modelo = '';
+  for (const [i, candidato] of modelos.entries()) {
+    modelo = candidato;
+    const ultimo = i === modelos.length - 1;
+    respuesta = await pedir(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`,
+      {
+        method: 'POST',
+        // La clave va en la cabecera, no en la direccion: las direcciones
+        // quedan en las bitacoras.
+        headers: { 'x-goog-api-key': clave, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inline_data: {
+                    mime_type: foto.tipoMime,
+                    data: foto.contenido.toString('base64'),
+                  },
                 },
-              },
-              { text: INSTRUCCIONES[tipo] },
-            ],
+                { text: INSTRUCCIONES[tipo] },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0,
+            responseMimeType: 'application/json',
+            responseSchema: esquemaGemini(ESQUEMA[tipo]),
           },
-        ],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: 'application/json',
-          responseSchema: esquemaGemini(ESQUEMA[tipo]),
-        },
-      }),
-    },
-  );
+        }),
+      },
+      // Dos intentos tienen que caber en el minuto que da la funcion.
+      { segundos: 25, dejarPasar: ultimo ? [] : OCUPADO },
+    );
+    if (respuesta.ok) break;
+    console.warn('[lectura-ia] ocupado', modelo, respuesta.status);
+  }
+  if (!respuesta?.ok) {
+    throw new ErrorNegocio(
+      'IA_NO_DISPONIBLE',
+      'No se pudo leer la foto ahora mismo. Intente de nuevo en un momento.',
+    );
+  }
 
   const cuerpo = (await respuesta.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;

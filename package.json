@@ -36,6 +36,7 @@
     "db:motos": "tsx scripts/cargar-motos.ts",
     "logo": "python scripts/preparar-logo.py",
     "ia:clave": "tsx scripts/clave-ia.ts",
+    "ia:probar": "tsx scripts/probar-ia.ts",
     "test:lectura": "tsx scripts/base-de-pruebas.ts scripts/verificar-lectura-ia.ts"
   },
   "dependencies": {
