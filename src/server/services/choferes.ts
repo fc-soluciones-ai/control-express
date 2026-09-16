@@ -10,6 +10,7 @@ import { prisma } from '@/lib/db/prisma';
 import { normalizarNombre } from '@/lib/excel/columnas';
 import { ErrorNegocio } from '@/server/errores';
 import { registrarEvento } from '@/server/services/auditoria';
+import { hashearPin, motivoPinInvalido } from '@/server/services/pin';
 import { esquemaChofer, type EntradaChofer } from '@/server/validaciones';
 
 export async function crearChofer(
@@ -175,6 +176,10 @@ export interface ChoferConHistoria {
   turnosCerrados: number;
   /** Suma de faltantes y sobrantes de todos sus cierres, en centimos. */
   diferenciaAcumulada: number;
+  /** Si tiene PIN para entrar desde su telefono. El PIN nunca sale de aqui. */
+  tieneAcceso: boolean;
+  /** Bloqueado por intentos fallidos hasta esta hora, si lo esta. */
+  bloqueadoHasta: Date | null;
 }
 
 /**
@@ -206,6 +211,109 @@ export async function listarChoferesConHistoria(): Promise<ChoferConHistoria[]> 
       tieneTurnoAbierto: chofer.turnos.some((t) => t.estado === 'ABIERTO'),
       turnosCerrados: cerrados.length,
       diferenciaAcumulada: cerrados.reduce((acc, t) => acc + (t.cierre?.diferencia ?? 0), 0),
+      tieneAcceso: chofer.pin !== null,
+      bloqueadoHasta:
+        chofer.bloqueadoHasta && chofer.bloqueadoHasta > new Date() ? chofer.bloqueadoHasta : null,
     };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Acceso del repartidor a su telefono
+// ---------------------------------------------------------------------------
+
+/**
+ * Solo un administrador da o quita el acceso. El PIN es lo que deja a un
+ * repartidor registrar gastos a su nombre: no lo reparte cualquier usuario de
+ * caja.
+ */
+function exigirAdministrador(quien: { id: string; rol: string }): void {
+  if (quien.rol !== 'ADMIN') {
+    throw new ErrorNegocio(
+      'DATOS_INVALIDOS',
+      'Solo un administrador puede dar o quitar el acceso de un repartidor.',
+    );
+  }
+}
+
+/**
+ * Le pone PIN a un repartidor, nuevo o reemplazando el que tuviera.
+ *
+ * Desbloquea los intentos fallidos y cierra las sesiones abiertas: si se
+ * cambia el PIN es porque el anterior se olvido o se filtro, y un telefono
+ * que entro con el viejo no deberia seguir adentro.
+ */
+export async function asignarPinRepartidor(
+  choferId: string,
+  pin: string,
+  quien: { id: string; rol: string },
+): Promise<{ sesionesCerradas: number; nuevo: boolean }> {
+  exigirAdministrador(quien);
+  const limpio = String(pin ?? '').trim();
+  const motivo = motivoPinInvalido(limpio);
+  if (motivo) throw new ErrorNegocio('DATOS_INVALIDOS', motivo);
+
+  return prisma.$transaction(async (tx) => {
+    const chofer = await tx.chofer.findUnique({
+      where: { id: choferId },
+      select: { id: true, nombre: true, estado: true, pin: true },
+    });
+    if (!chofer) throw new ErrorNegocio('CHOFER_NO_ENCONTRADO', 'El repartidor no existe.');
+    if (chofer.estado !== 'ACTIVO') {
+      throw new ErrorNegocio(
+        'CHOFER_INACTIVO',
+        `${chofer.nombre} esta fuera de servicio. Reactivelo antes de darle acceso.`,
+      );
+    }
+
+    await tx.chofer.update({
+      where: { id: chofer.id },
+      data: { pin: hashearPin(limpio), intentosFallidos: 0, bloqueadoHasta: null },
+    });
+    const { count } = await tx.sesion.deleteMany({ where: { choferId: chofer.id } });
+
+    // Se anota que cambio, nunca el PIN.
+    await registrarEvento(tx, {
+      tipo: 'PIN_CAMBIADO',
+      cajeroId: quien.id,
+      choferId: chofer.id,
+      entidadTipo: 'Chofer',
+      entidadId: chofer.id,
+      detalle: { nombre: chofer.nombre, accion: chofer.pin ? 'CAMBIADO' : 'ASIGNADO' },
+    });
+
+    return { sesionesCerradas: count, nuevo: chofer.pin === null };
+  });
+}
+
+/** Le quita el acceso: sin PIN no puede entrar, y se cierra lo que tuviera abierto. */
+export async function quitarAccesoRepartidor(
+  choferId: string,
+  quien: { id: string; rol: string },
+): Promise<{ sesionesCerradas: number }> {
+  exigirAdministrador(quien);
+  return prisma.$transaction(async (tx) => {
+    const chofer = await tx.chofer.findUnique({
+      where: { id: choferId },
+      select: { id: true, nombre: true },
+    });
+    if (!chofer) throw new ErrorNegocio('CHOFER_NO_ENCONTRADO', 'El repartidor no existe.');
+
+    await tx.chofer.update({
+      where: { id: chofer.id },
+      data: { pin: null, intentosFallidos: 0, bloqueadoHasta: null },
+    });
+    const { count } = await tx.sesion.deleteMany({ where: { choferId: chofer.id } });
+
+    await registrarEvento(tx, {
+      tipo: 'PIN_CAMBIADO',
+      cajeroId: quien.id,
+      choferId: chofer.id,
+      entidadTipo: 'Chofer',
+      entidadId: chofer.id,
+      detalle: { nombre: chofer.nombre, accion: 'QUITADO' },
+    });
+
+    return { sesionesCerradas: count };
   });
 }

@@ -13,9 +13,11 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/db/prisma';
 import { esErrorNegocio, ErrorNegocio } from '@/server/errores';
 import {
+  asignarPinRepartidor,
   crearChofer,
   desactivarChofer,
   editarChofer,
+  quitarAccesoRepartidor,
   reactivarChofer,
 } from '@/server/services/choferes';
 import { guardarFotoChofer } from '@/server/services/fotos';
@@ -127,6 +129,38 @@ export async function accionCambiarEstadoChofer(
     revalidatePath('/');
     revalidatePath('/repartidores');
     return { ok: true, datos: null };
+  } catch (e) {
+    return comoResultado(e);
+  }
+}
+
+/**
+ * El administrador le pone el PIN con que el repartidor entra desde su
+ * telefono. El PIN solo viaja en esta peticion: se guarda derivado y no se
+ * devuelve ni se anota en ningun lado.
+ */
+export async function accionAsignarPinRepartidor(
+  choferId: string,
+  pin: string,
+): Promise<Resultado<{ sesionesCerradas: number; nuevo: boolean }>> {
+  try {
+    const cajero = await exigirCajero();
+    const resultado = await asignarPinRepartidor(String(choferId), String(pin), cajero);
+    revalidatePath('/repartidores');
+    return { ok: true, datos: resultado };
+  } catch (e) {
+    return comoResultado(e);
+  }
+}
+
+export async function accionQuitarAccesoRepartidor(
+  choferId: string,
+): Promise<Resultado<{ sesionesCerradas: number }>> {
+  try {
+    const cajero = await exigirCajero();
+    const resultado = await quitarAccesoRepartidor(String(choferId), cajero);
+    revalidatePath('/repartidores');
+    return { ok: true, datos: resultado };
   } catch (e) {
     return comoResultado(e);
   }

@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 
 import { prisma } from '@/lib/db/prisma';
 import { esErrorNegocio } from '@/server/errores';
+import { asignarPinRepartidor, quitarAccesoRepartidor } from '@/server/services/choferes';
 import { hashearPin } from '@/server/services/pin';
 import {
   autenticar,
@@ -237,6 +238,101 @@ async function main(): Promise<void> {
     'un repartidor inactivo pierde la sesion',
     await repartidorPorToken(vivaRepartidor.token),
     null,
+  );
+
+  // -------------------------------------------------------------------------
+  console.log('\n--- El administrador da el PIN del repartidor ---');
+
+  const motivo = async (promesa: Promise<unknown>) => {
+    try {
+      await promesa;
+      return 'SIN_ERROR';
+    } catch (e) {
+      return esErrorNegocio(e) ? e.message : 'ERROR_INESPERADO';
+    }
+  };
+  const admin = { id: cajero.id, rol: 'ADMIN' };
+  const cajeroComun = await prisma.cajero.create({
+    data: { nombre: 'Cajero comun', pin: hashearPin('8264'), rol: 'CAJERO' },
+  });
+
+  comprobar(
+    'un cajero comun no puede darlo',
+    (await motivo(asignarPinRepartidor(sinAcceso.id, '5829', { id: cajeroComun.id, rol: 'CAJERO' }))).startsWith('Solo un administrador'),
+    true,
+  );
+  comprobar(
+    'un PIN facil se rechaza',
+    await motivo(asignarPinRepartidor(sinAcceso.id, '1234', admin)),
+    'Ese PIN es de los primeros que alguien probaria. Elija otro.',
+  );
+  comprobar(
+    'uno con letras tambien',
+    await motivo(asignarPinRepartidor(sinAcceso.id, '58a9', admin)),
+    'El PIN solo puede tener digitos.',
+  );
+  comprobar(
+    'a un repartidor inactivo no se le da',
+    (await motivo(asignarPinRepartidor(david.id, '5829', admin))).includes('fuera de servicio'),
+    true,
+  );
+
+  const asignado = await asignarPinRepartidor(sinAcceso.id, '5829', admin);
+  comprobar('se asigna el PIN', asignado.nuevo, true);
+  const guardado = await prisma.chofer.findUnique({ where: { id: sinAcceso.id } });
+  comprobar('se guarda derivado, no el PIN', guardado?.pin?.startsWith('scrypt$'), true);
+  comprobar('y nunca en claro', guardado?.pin?.includes('5829'), false);
+  const entra = await autenticarRepartidor(sinAcceso.id, '5829', 'PRUEBA');
+  comprobar('con el PIN nuevo entra', entra.repartidor.nombre, 'PINITO-R');
+  comprobar(
+    'y ya aparece en la pantalla de entrada',
+    (await repartidoresConAcceso()).map((r) => r.nombre),
+    ['PINITO-R'],
+  );
+
+  // Cambiarlo desbloquea y saca al telefono que entro con el viejo.
+  await prisma.chofer.update({
+    where: { id: sinAcceso.id },
+    data: { intentosFallidos: 5, bloqueadoHasta: new Date(Date.now() + 600_000) },
+  });
+  const cambio = await asignarPinRepartidor(sinAcceso.id, '7351', admin);
+  comprobar('cambiarlo no es asignarlo de nuevo', cambio.nuevo, false);
+  comprobar('cierra la sesion abierta', cambio.sesionesCerradas, 1);
+  comprobar('el token viejo ya no sirve', await repartidorPorToken(entra.token), null);
+  comprobar(
+    'el PIN viejo ya no entra',
+    await motivo(autenticarRepartidor(sinAcceso.id, '5829', 'PRUEBA')),
+    'PIN incorrecto.',
+  );
+  comprobar(
+    'y el nuevo si, aunque estuviera bloqueado',
+    (await autenticarRepartidor(sinAcceso.id, '7351', 'PRUEBA')).repartidor.id,
+    sinAcceso.id,
+  );
+
+  const pinEnBitacora = await prisma.eventoAuditoria.findMany({
+    where: { tipo: 'PIN_CAMBIADO', choferId: sinAcceso.id },
+    select: { detalle: true, cajeroId: true },
+  });
+  comprobar('la bitacora anota los dos cambios', pinEnBitacora.length, 2);
+  comprobar('firmados por el administrador', pinEnBitacora.every((e) => e.cajeroId === cajero.id), true);
+  comprobar(
+    'sin el PIN en el detalle',
+    pinEnBitacora.some((e) => (e.detalle ?? '').includes('7351') || (e.detalle ?? '').includes('5829')),
+    false,
+  );
+
+  const quitado = await quitarAccesoRepartidor(sinAcceso.id, admin);
+  comprobar('quitar el acceso cierra su sesion', quitado.sesionesCerradas, 1);
+  comprobar(
+    'y ya no entra',
+    await motivo(autenticarRepartidor(sinAcceso.id, '7351', 'PRUEBA')),
+    'PIN incorrecto.',
+  );
+  comprobar(
+    'un cajero comun tampoco puede quitarlo',
+    (await motivo(quitarAccesoRepartidor(sinAcceso.id, { id: cajeroComun.id, rol: 'CAJERO' }))).startsWith('Solo un administrador'),
+    true,
   );
 
   await prisma.sesion.deleteMany();

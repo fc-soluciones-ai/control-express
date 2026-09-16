@@ -12,9 +12,11 @@ import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import {
+  accionAsignarPinRepartidor,
   accionCambiarEstadoChofer,
   accionCrearChofer,
   accionEditarChofer,
+  accionQuitarAccesoRepartidor,
 } from '@/app/repartidores/acciones';
 import { encogerImagen } from '@/lib/imagen';
 import { clasificarDiferencia, formatearMoneda } from '@/lib/money/money';
@@ -22,6 +24,8 @@ import type { ChoferConHistoria } from '@/server/services/choferes';
 
 interface Props {
   choferes: ChoferConHistoria[];
+  /** Solo el administrador da o quita el PIN del telefono. */
+  esAdministrador: boolean;
 }
 
 type Formulario = { modo: 'CREAR' } | { modo: 'EDITAR'; chofer: ChoferConHistoria } | null;
@@ -35,11 +39,30 @@ function iniciales(nombre: string): string {
     .toUpperCase();
 }
 
-export function PanelChoferes({ choferes }: Props) {
+export function PanelChoferes({ choferes, esAdministrador }: Props) {
   const router = useRouter();
   const [formulario, setFormulario] = useState<Formulario>(null);
   const [error, setError] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
+  const [paraPin, setParaPin] = useState<ChoferConHistoria | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const quitarAcceso = useCallback(
+    async (chofer: ChoferConHistoria) => {
+      setTrabajando(chofer.id);
+      setError(null);
+      setAviso(null);
+      const respuesta = await accionQuitarAccesoRepartidor(chofer.id);
+      setTrabajando(null);
+      if (!respuesta.ok) {
+        setError(respuesta.mensaje);
+        return;
+      }
+      setAviso(`${chofer.nombre} ya no puede entrar desde su telefono.`);
+      router.refresh();
+    },
+    [router],
+  );
 
   const cambiarEstado = useCallback(
     async (chofer: ChoferConHistoria) => {
@@ -77,6 +100,9 @@ export function PanelChoferes({ choferes }: Props) {
           {error}
         </p>
       ) : null}
+      {aviso ? (
+        <p className="rounded-2xl bg-entrada/15 p-5 text-center text-lg text-entrada">{aviso}</p>
+      ) : null}
 
       <Seccion titulo={`En servicio (${activos.length})`}>
         {activos.map((chofer) => (
@@ -89,6 +115,13 @@ export function PanelChoferes({ choferes }: Props) {
               setFormulario({ modo: 'EDITAR', chofer });
             }}
             alCambiarEstado={() => cambiarEstado(chofer)}
+            esAdministrador={esAdministrador}
+            alAsignarPin={() => {
+              setError(null);
+              setAviso(null);
+              setParaPin(chofer);
+            }}
+            alQuitarAcceso={() => quitarAcceso(chofer)}
           />
         ))}
       </Seccion>
@@ -105,9 +138,28 @@ export function PanelChoferes({ choferes }: Props) {
                 setFormulario({ modo: 'EDITAR', chofer });
               }}
               alCambiarEstado={() => cambiarEstado(chofer)}
+            esAdministrador={esAdministrador}
+            alAsignarPin={() => {
+              setError(null);
+              setAviso(null);
+              setParaPin(chofer);
+            }}
+            alQuitarAcceso={() => quitarAcceso(chofer)}
             />
           ))}
         </Seccion>
+      ) : null}
+
+      {paraPin ? (
+        <ModalPin
+          chofer={paraPin}
+          alCerrar={() => setParaPin(null)}
+          alGuardar={(mensaje) => {
+            setParaPin(null);
+            setAviso(mensaje);
+            router.refresh();
+          }}
+        />
       ) : null}
 
       {formulario ? (
@@ -138,12 +190,19 @@ function Ficha({
   trabajando,
   alEditar,
   alCambiarEstado,
+  esAdministrador,
+  alAsignarPin,
+  alQuitarAcceso,
 }: {
   chofer: ChoferConHistoria;
   trabajando: boolean;
   alEditar: () => void;
   alCambiarEstado: () => void;
+  esAdministrador: boolean;
+  alAsignarPin: () => void;
+  alQuitarAcceso: () => void;
 }) {
+  const [confirmarQuitar, setConfirmarQuitar] = useState(false);
   const activo = chofer.estado === 'ACTIVO';
   const clasificacion = clasificarDiferencia(chofer.diferenciaAcumulada);
 
@@ -224,6 +283,73 @@ function Ficha({
         >
           {trabajando ? '...' : activo ? 'Desactivar' : 'Reactivar'}
         </button>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-borde p-3">
+        <p className="text-sm">
+          <span className="text-slate-400">Acceso desde el telefono: </span>
+          {chofer.tieneAcceso ? (
+            <span className="font-bold text-entrada">con PIN</span>
+          ) : (
+            <span className="font-bold text-slate-500">sin PIN</span>
+          )}
+          {chofer.bloqueadoHasta ? (
+            <span className="ml-2 rounded-lg bg-aviso/15 px-2 py-0.5 text-xs text-aviso">
+              bloqueado por intentos hasta{' '}
+              {new Date(chofer.bloqueadoHasta).toLocaleTimeString('es-CR', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          ) : null}
+        </p>
+
+        {!esAdministrador ? (
+          <p className="mt-2 text-xs text-slate-500">El PIN lo asigna un administrador.</p>
+        ) : confirmarQuitar ? (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="boton-tactil border border-borde bg-panelClaro text-slate-300"
+              onClick={() => setConfirmarQuitar(false)}
+            >
+              No
+            </button>
+            <button
+              type="button"
+              className="boton-tactil bg-alerta text-white disabled:opacity-40"
+              disabled={trabajando}
+              onClick={() => {
+                setConfirmarQuitar(false);
+                alQuitarAcceso();
+              }}
+            >
+              Si, quitar
+            </button>
+          </div>
+        ) : (
+          <div className={`mt-3 grid gap-2 ${chofer.tieneAcceso ? 'grid-cols-2' : ''}`}>
+            <button
+              type="button"
+              className="boton-tactil border border-entrada/50 bg-entrada/10 text-entrada disabled:opacity-40"
+              disabled={trabajando || !activo}
+              onClick={alAsignarPin}
+              title={activo ? undefined : 'Reactivelo antes de darle acceso'}
+            >
+              {chofer.tieneAcceso ? '\u{1F511} Cambiar PIN' : '\u{1F511} Asignar PIN'}
+            </button>
+            {chofer.tieneAcceso ? (
+              <button
+                type="button"
+                className="boton-tactil border border-alerta/50 bg-alerta/10 text-alerta disabled:opacity-40"
+                disabled={trabajando}
+                onClick={() => setConfirmarQuitar(true)}
+              >
+                Quitar acceso
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
     </li>
   );
@@ -398,5 +524,139 @@ function Campo({
       />
       {ayuda ? <span className="mt-1 block text-xs text-slate-500">{ayuda}</span> : null}
     </label>
+  );
+}
+
+const TECLAS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'BORRAR', '0', 'VER'] as const;
+
+/**
+ * Teclado para ponerle el PIN a un repartidor.
+ *
+ * Se muestra con puntos y se puede ver con un toque: el administrador lo
+ * tiene que dictar, pero no hace falta que quede a la vista de todo el
+ * mostrador mientras lo teclea.
+ */
+function ModalPin({
+  chofer,
+  alCerrar,
+  alGuardar,
+}: {
+  chofer: ChoferConHistoria;
+  alCerrar: () => void;
+  alGuardar: (mensaje: string) => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [ver, setVer] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const guardar = useCallback(async () => {
+    if (enviando || pin.length < 4) return;
+    setEnviando(true);
+    setError(null);
+    const respuesta = await accionAsignarPinRepartidor(chofer.id, pin);
+    setEnviando(false);
+    if (!respuesta.ok) {
+      setError(respuesta.mensaje);
+      return;
+    }
+    alGuardar(
+      `${chofer.nombre} ya puede entrar con su PIN nuevo.` +
+        (respuesta.datos.sesionesCerradas > 0
+          ? ' Se cerro la sesion que tenia abierta en su telefono.'
+          : ''),
+    );
+  }, [alGuardar, chofer, enviando, pin]);
+
+  const etiqueta = (tecla: (typeof TECLAS)[number]) => {
+    if (tecla === 'BORRAR') return 'Borrar';
+    if (tecla === 'VER') return ver ? 'Ocultar' : 'Ver';
+    return tecla;
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="tarjeta w-full max-w-sm p-6">
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold">
+              {chofer.tieneAcceso ? 'Cambiar PIN' : 'Asignar PIN'}
+            </h2>
+            <p className="text-slate-400">{chofer.nombre}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar"
+            className="h-12 w-12 shrink-0 rounded-full border border-borde text-2xl text-slate-400 active:scale-95"
+            onClick={alCerrar}
+            disabled={enviando}
+          >
+            ×
+          </button>
+        </header>
+
+        <p className="mt-4 text-sm text-slate-400">
+          Entre 4 y 6 digitos. Con este PIN entra desde su telefono, en la pestana Repartidor.
+        </p>
+
+        <div
+          className="cifra mt-4 flex h-20 items-center justify-center rounded-2xl border border-borde bg-fondo text-4xl font-bold tracking-[0.4em]"
+          aria-live="polite"
+        >
+          {pin.length === 0 ? (
+            <span className="text-base tracking-normal text-slate-600">Teclee el PIN</span>
+          ) : ver ? (
+            pin
+          ) : (
+            '\u2022'.repeat(pin.length)
+          )}
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {TECLAS.map((tecla) => (
+            <button
+              key={tecla}
+              type="button"
+              disabled={enviando}
+              onClick={() => {
+                setError(null);
+                if (tecla === 'BORRAR') setPin((p) => p.slice(0, -1));
+                else if (tecla === 'VER') setVer((v) => !v);
+                else setPin((p) => (p.length < 6 ? p + tecla : p));
+              }}
+              className={`h-16 rounded-2xl border border-borde bg-panelClaro font-bold active:scale-95 ${
+                tecla.length === 1 ? 'text-2xl' : 'text-sm text-slate-300'
+              }`}
+            >
+              {etiqueta(tecla)}
+            </button>
+          ))}
+        </div>
+
+        {error ? (
+          <p className="mt-4 rounded-xl bg-alerta/15 p-3 text-center text-alerta" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={enviando || pin.length < 4}
+          className="boton-tactil mt-5 h-16 w-full bg-entrada text-xl text-slate-950 disabled:bg-slate-700 disabled:text-slate-500"
+        >
+          {enviando ? 'Guardando...' : 'Guardar PIN'}
+        </button>
+        {chofer.tieneAcceso ? (
+          <p className="mt-3 text-center text-xs text-slate-500">
+            El PIN anterior deja de servir y se cierra la sesion de su telefono.
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }

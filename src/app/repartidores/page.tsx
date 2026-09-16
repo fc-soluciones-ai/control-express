@@ -35,7 +35,7 @@ export default async function Choferes() {
         </Link>
       </div>
 
-      <PanelChoferes choferes={choferes} />
+      <PanelChoferes choferes={choferes} esAdministrador={cajero.rol === 'ADMIN'} />
     </main>
   );
 }

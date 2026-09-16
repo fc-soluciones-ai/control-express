@@ -553,9 +553,15 @@ ver lo de otro.
 ### Nadie entra hasta que se le dé acceso
 
 El PIN del repartidor es opcional y empieza vacío. Sin PIN no entra, y ni
-siquiera aparece en la lista de la pantalla de entrada. Se le da acceso con
-`npm run pin -- --repartidor "DAVID-R"`, y la pestaña de repartidores solo
-aparece cuando al menos uno tiene PIN.
+siquiera aparece en la lista de la pantalla de entrada. La pestaña de
+repartidores solo aparece cuando al menos uno tiene PIN.
+
+El acceso lo da un **administrador** (rol `ADMIN`) desde Gestión de
+repartidores, con el botón **Asignar PIN** de cada ficha; ahí mismo lo cambia
+o lo quita. Asignarlo o cambiarlo desbloquea los intentos fallidos y cierra la
+sesión que el teléfono tuviera abierta. En la bitácora queda quién lo hizo,
+nunca el PIN. Desde la terminal sigue sirviendo
+`npm run pin -- --repartidor "DAVID-R"`.
 
 ### El repartidor carga su propia gasolina
 
