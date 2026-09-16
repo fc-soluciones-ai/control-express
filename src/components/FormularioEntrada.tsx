@@ -80,7 +80,7 @@ export function FormularioEntrada({ cajeros, repartidores }: Props) {
         <div className="mb-5 grid grid-cols-2 gap-2" role="tablist">
           <Puerta
             activa={esCaja}
-            etiqueta="Caja"
+            etiqueta="Administrador"
             onClick={() => {
               setPuerta('CAJA');
               setPin('');
