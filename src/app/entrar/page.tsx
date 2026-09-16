@@ -6,11 +6,22 @@
  */
 
 import { FormularioEntrada } from '@/components/FormularioEntrada';
-import { cajerosActivos, repartidoresConAcceso } from '@/server/services/sesion';
+import { redirect } from 'next/navigation';
+
+import {
+  cajeroDeSesion,
+  cajerosActivos,
+  repartidorDeSesion,
+  repartidoresConAcceso,
+} from '@/server/services/sesion';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Entrar() {
+  // Quien ya tiene sesion no necesita volver a teclear el PIN.
+  if (await cajeroDeSesion()) redirect('/');
+  if (await repartidorDeSesion()) redirect('/mi');
+
   const [cajeros, repartidores] = await Promise.all([
     cajerosActivos(),
     repartidoresConAcceso(),
@@ -19,6 +30,14 @@ export default async function Entrar() {
   return (
     <main className="flex min-h-screen items-center justify-center p-5">
       <div className="w-full max-w-md">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.png"
+          alt=""
+          className="mx-auto mb-3 h-32 w-auto drop-shadow-lg"
+          width={220}
+          height={160}
+        />
         <h1 className="mb-1 text-center text-3xl font-bold">Control Express</h1>
         <p className="mb-6 text-center text-slate-400">Identifiquese para entrar</p>
 

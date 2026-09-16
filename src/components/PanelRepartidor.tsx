@@ -57,7 +57,9 @@ export function PanelRepartidor({ repartidor, resumen }: Props) {
   return (
     <main className="mx-auto max-w-lg p-5">
       <header className="flex items-start justify-between gap-4">
-        <div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="" className="h-14 w-auto shrink-0" width={78} height={56} />
+        <div className="flex-1">
           <p className="text-xs uppercase tracking-widest text-slate-500">Repartidor</p>
           <h1 className="text-2xl font-bold">{repartidor.nombre}</h1>
           <p className="text-sm text-slate-400">Mesero #{repartidor.codigo}</p>

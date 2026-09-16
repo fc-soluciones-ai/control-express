@@ -14,14 +14,18 @@ import { GrillaChoferes } from '@/components/GrillaChoferes';
 import { diaOperativoDe } from '@/lib/fechas';
 import { efectivoTeoricoEnCaja, resumenChoferesEnTurno } from '@/server/services/caja';
 import { estaInstanciaRespalda, ultimoRespaldo } from '@/server/services/respaldo';
-import { cajeroDeSesion } from '@/server/services/sesion';
+import { cajeroDeSesion, repartidorDeSesion } from '@/server/services/sesion';
 import { choferesDisponiblesParaTurno } from '@/server/services/turnos';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Dashboard() {
   const cajero = await cajeroDeSesion();
-  if (!cajero) redirect('/entrar');
+  if (!cajero) {
+    // El icono del telefono abre aqui. Un repartidor que ya entro va directo
+    // a su pantalla, en vez de ver otra vez la de entrada cada vez que abre.
+    redirect((await repartidorDeSesion()) ? '/mi' : '/entrar');
+  }
 
   const diaOperativo = diaOperativoDe();
   const [caja, enTurno, disponibles, respaldo] = await Promise.all([

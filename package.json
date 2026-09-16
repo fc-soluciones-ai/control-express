@@ -33,7 +33,8 @@
     "vercel:variables": "tsx scripts/vercel-variables.ts",
     "test:flota": "tsx scripts/base-de-pruebas.ts scripts/verificar-flota.ts",
     "demo:flota": "tsx scripts/base-de-pruebas.ts scripts/demo-flota.ts",
-    "db:motos": "tsx scripts/cargar-motos.ts"
+    "db:motos": "tsx scripts/cargar-motos.ts",
+    "logo": "python scripts/preparar-logo.py"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

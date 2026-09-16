@@ -6,7 +6,14 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Control Express',
-  description: 'Abonos parciales y cierre de turno de repartidores',
+  description: 'Caja, repartidores y flota de motos',
+  // Al agregarla a la pantalla de inicio del iPhone, que abra como aplicacion
+  // y no dentro de Safari. Android lo toma del manifiesto (app/manifest.ts).
+  appleWebApp: {
+    capable: true,
+    title: 'Control Express',
+    statusBarStyle: 'black-translucent',
+  },
 };
 
 export const viewport: Viewport = {

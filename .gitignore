@@ -35,3 +35,9 @@ Desktop.ini
 
 # Lista de la flota real: datos del negocio, no del programa
 motos.txt
+
+# Muestra que deja scripts/preparar-logo.py para revisar el recorte
+muestra-logo.png
+
+# Compilados de Python
+__pycache__/
