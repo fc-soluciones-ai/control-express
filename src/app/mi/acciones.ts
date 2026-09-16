@@ -12,7 +12,12 @@ import { revalidatePath } from 'next/cache';
 
 import { esErrorNegocio } from '@/server/errores';
 import { agregarEvidencia, borrarEvidencia, type TipoEntidad } from '@/server/services/evidencia';
-import { registrarMantenimiento } from '@/server/services/mantenimiento';
+import {
+  leerFoto,
+  registrarGasolinaLeida,
+  type LecturaParaPantalla,
+  type TipoLectura,
+} from '@/server/services/lectura-ia';
 import { exigirRepartidor } from '@/server/services/sesion';
 
 export type Resultado<T> = { ok: true; datos: T } | { ok: false; mensaje: string };
@@ -24,43 +29,49 @@ function comoResultado(e: unknown): { ok: false; mensaje: string } {
 }
 
 /**
- * Registra una carga de gasolina de su propia moto.
+ * Lee una foto del odometro o de la factura.
  *
- * La placa NO viene de la pantalla: se busca la moto que el repartidor trae
- * ahora mismo. Si viniera de afuera, alguien podria cargarle la gasolina a la
- * moto de otro.
+ * Devuelve lo que se leyo para mostrarlo, y un id. Ese id es lo unico que la
+ * pantalla manda despues: los numeros se quedan en el servidor.
  */
-export async function accionCargarGasolina(entrada: {
-  kilometraje: number;
-  monto: number;
-  estacion?: string;
-  claveIdempotencia: string;
-}): Promise<Resultado<{ id: string; placa: string; kilometraje: number }>> {
+export async function accionLeerFoto(
+  formulario: FormData,
+): Promise<Resultado<LecturaParaPantalla>> {
   try {
     const repartidor = await exigirRepartidor();
-
-    const { prisma } = await import('@/lib/db/prisma');
-    const asignacion = await prisma.asignacionMoto.findFirst({
-      where: { choferId: repartidor.id, fechaFin: null },
-      select: { placa: true },
-    });
-
-    if (!asignacion) {
-      return {
-        ok: false,
-        mensaje: 'Hoy no tiene ninguna moto asignada, asi que no hay a cual cargarle la gasolina.',
-      };
+    const tipo = String(formulario.get('tipo') ?? '') as TipoLectura;
+    const archivo = formulario.get('archivo');
+    if (!(archivo instanceof File) || archivo.size === 0) {
+      return { ok: false, mensaje: 'Tome la foto.' };
     }
+    const contenido = Buffer.from(await archivo.arrayBuffer());
+    const lectura = await leerFoto({ choferId: repartidor.id, tipo, contenido });
+    return { ok: true, datos: lectura };
+  } catch (e) {
+    return comoResultado(e);
+  }
+}
 
-    const resultado = await registrarMantenimiento({
-      placa: asignacion.placa,
-      tipo: 'PREVENTIVO',
-      categoria: 'GASOLINA',
-      costoTotal: entrada.monto,
-      kilometrajeEvento: entrada.kilometraje,
-      tallerOProveedor: entrada.estacion?.trim() || undefined,
+/**
+ * Registra una carga de gasolina de su propia moto, con lo leido de las fotos.
+ *
+ * Ni la placa, ni el kilometraje, ni el monto vienen de la pantalla: la moto
+ * es la que trae ahora, y los numeros son los que la IA leyo. Asi el
+ * repartidor no puede cargarle gasolina a otra moto ni cambiar lo que dice la
+ * factura.
+ */
+export async function accionCargarGasolina(entrada: {
+  lecturaOdometroId: string;
+  lecturaFacturaId: string;
+  claveIdempotencia: string;
+}): Promise<Resultado<{ id: string; placa: string; kilometraje: number; monto: number }>> {
+  try {
+    const repartidor = await exigirRepartidor();
+    const resultado = await registrarGasolinaLeida({
       choferId: repartidor.id,
-      claveIdempotencia: entrada.claveIdempotencia,
+      lecturaOdometroId: String(entrada.lecturaOdometroId ?? ''),
+      lecturaFacturaId: String(entrada.lecturaFacturaId ?? ''),
+      claveIdempotencia: String(entrada.claveIdempotencia ?? ''),
     });
 
     revalidatePath('/mi');
@@ -72,7 +83,8 @@ export async function accionCargarGasolina(entrada: {
       datos: {
         id: resultado.id,
         placa: resultado.placa,
-        kilometraje: resultado.kilometrajeActualizado,
+        kilometraje: resultado.kilometraje,
+        monto: resultado.monto,
       },
     };
   } catch (e) {

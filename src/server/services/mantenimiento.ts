@@ -54,6 +54,11 @@ export interface EntradaMantenimiento {
   choferId?: string;
 
   claveIdempotencia?: string;
+
+  /** IA cuando los numeros salieron de las fotos. Ver services/lectura-ia.ts. */
+  origen?: 'MANUAL' | 'IA';
+  fechaFactura?: Date;
+  numeroFactura?: string;
 }
 
 export interface ResultadoMantenimiento {
@@ -134,6 +139,9 @@ export async function registrarMantenimiento(
         comprobanteUrl: entrada.comprobanteUrl ?? null,
         ...firma,
         claveIdempotencia: entrada.claveIdempotencia ?? null,
+        origen: entrada.origen ?? 'MANUAL',
+        fechaFactura: entrada.fechaFactura ?? null,
+        numeroFactura: entrada.numeroFactura ?? null,
       },
     });
 
@@ -166,6 +174,7 @@ export async function registrarMantenimiento(
         tipo: entrada.tipo,
         kilometraje: entrada.kilometrajeEvento,
         proveedor: entrada.tallerOProveedor ?? null,
+        origen: entrada.origen ?? 'MANUAL',
         laTraia: asignacion?.chofer.nombre ?? null,
       },
     });

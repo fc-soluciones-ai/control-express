@@ -648,3 +648,49 @@ Dos aclaraciones del negocio que conviene no olvidar:
 
 La carpeta `public/choferes/` conservaba el nombre viejo, pero ya no existe:
 las fotos pasaron a la base de datos y esa carpeta quedó sin uso.
+
+---
+
+## 15. La gasolina leída de las fotos
+
+El repartidor ya no teclea el kilometraje ni el monto. Toma dos fotos, la del
+odómetro y la de la factura, y el servidor se las pasa a Claude (API de
+Anthropic). Claude devuelve el kilometraje, el total, la fecha, la gasolinera,
+el número de factura y los litros. La pantalla los muestra y no deja cambiarlos.
+
+Código: `src/server/services/lectura-ia.ts`. Prueba: `npm run test:lectura`,
+con un lector falso que no llama a la IA.
+
+**Cómo se evita que se manipulen los números**
+
+1. Cada foto leída queda en la tabla `lecturas_foto` con lo que se leyó. Para
+   registrar, la pantalla manda solo los ids de dos lecturas; los números se
+   toman de la base.
+2. Cada lectura sirve una sola vez, es del repartidor que la tomó y de la moto
+   que traía. Se reserva antes de crear el gasto, así dos envíos simultáneos
+   no pueden usarla dos veces.
+3. La misma foto (huella SHA-256) o la misma factura (por número, o por bomba,
+   fecha y monto) no se acepta dos veces.
+4. La factura tiene que ser de los últimos 3 días. El odómetro no retrocede ni
+   salta más de 2.500 km. Una lectura de hace más de 2 horas ya no sirve.
+5. Las dos fotos pasan a la evidencia del gasto, y el gasto queda con
+   `origen = 'IA'`. Si Claude notó algo raro (una foto tomada a una pantalla,
+   por ejemplo), queda en `observacion`.
+
+Lo que no se puede detectar desde aquí es una factura ajena que nunca se
+registró. Para eso la foto queda a la vista de la caja.
+
+Si una foto no se lee, se toma otra. Si no hay manera, la gasolina la registra
+la caja desde la flota, como antes.
+
+**Configuración**
+
+```
+npm run ia:clave                        # la clave, con entrada oculta, a .env
+npm run vercel:variables -- --aplicar   # la sube a Vercel; luego volver a desplegar
+```
+
+Sin `ANTHROPIC_API_KEY`, la pantalla del repartidor avisa que la lectura no
+está configurada y no deja registrar. El modelo es `claude-sonnet-5` y se
+puede cambiar con `IA_MODELO`. Hay un tope de 30 fotos por hora por
+repartidor, porque cada lectura cuesta.

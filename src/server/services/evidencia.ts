@@ -99,7 +99,7 @@ const FIRMAS: ReadonlyArray<{ tipoMime: string; coincide: (b: Buffer) => boolean
   },
 ];
 
-function tipoMimeSegunContenido(contenido: Buffer): string {
+export function tipoMimeSegunContenido(contenido: Buffer): string {
   const firma = FIRMAS.find((f) => f.coincide(contenido));
   if (!firma) {
     throw new ErrorNegocio('DATOS_INVALIDOS', 'El archivo no es una imagen JPG, PNG ni WEBP.');

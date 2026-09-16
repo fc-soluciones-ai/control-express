@@ -5,6 +5,9 @@
  * la mano. Pedirle que se lo dicte al cajero al volver es pedirle a dos
  * personas que recuerden un numero.
  *
+ * No teclea nada: fotografia el odometro y la factura, y los numeros los
+ * lee la IA en el servidor. Ver services/lectura-ia.ts.
+ *
  * Solo su moto, solo gasolina. El taller, los repuestos y los seguros los
  * sigue registrando la caja: son gastos que el repartidor no decide.
  */
@@ -12,10 +15,15 @@
 import { redirect } from 'next/navigation';
 
 import { FormularioGasolina } from '@/components/FormularioGasolina';
+import { iaConfigurada } from '@/server/services/lectura-ia';
 import { resumenDelRepartidor } from '@/server/services/repartidor';
 import { repartidorDeSesion } from '@/server/services/sesion';
 
 export const dynamic = 'force-dynamic';
+
+// Leer una foto con la IA tarda unos segundos; el limite por defecto de la
+// funcion es corto para eso.
+export const maxDuration = 60;
 
 export default async function CargarGasolina() {
   const repartidor = await repartidorDeSesion();
@@ -23,5 +31,5 @@ export default async function CargarGasolina() {
 
   const resumen = await resumenDelRepartidor(repartidor.id);
 
-  return <FormularioGasolina moto={resumen.moto} />;
+  return <FormularioGasolina moto={resumen.moto} iaLista={iaConfigurada()} />;
 }

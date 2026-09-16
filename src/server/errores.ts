@@ -19,7 +19,10 @@ export type CodigoErrorNegocio =
   | 'ABONO_YA_ANULADO'
   | 'ABONO_DE_TURNO_CERRADO'
   | 'TIQUETE_NO_ENCONTRADO'
-  | 'DATOS_INVALIDOS';
+  | 'DATOS_INVALIDOS'
+  | 'IA_NO_DISPONIBLE'
+  | 'FOTO_ILEGIBLE'
+  | 'FACTURA_REPETIDA';
 
 export class ErrorNegocio extends Error {
   readonly codigo: CodigoErrorNegocio;

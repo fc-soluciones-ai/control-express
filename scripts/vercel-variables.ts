@@ -45,6 +45,7 @@ const VARIABLES: Variable[] = [
     nota: 'desde la nube no se alcanza la impresora del local',
   },
   { nombre: 'IMPRESORA_ANCHO_CARACTERES', obligatoria: false, valor: '48' },
+  { nombre: 'ANTHROPIC_API_KEY', obligatoria: false, nota: 'lee las fotos de gasolina; ver npm run ia:clave' },
 ];
 
 function vercel(argumentos: string[], entrada?: string): string {
