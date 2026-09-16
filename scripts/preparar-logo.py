@@ -34,7 +34,7 @@ from collections import deque
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -157,114 +157,206 @@ def quitar_fondo(original: Image.Image) -> Image.Image:
 
 
 # ---------------------------------------------------------------------------
-# El cajon de repartos, mas grande
+# El cajon de repartos, redibujado
 # ---------------------------------------------------------------------------
 #
 # Lo que el logo tiene que decir primero es "servicio express", y el cajon es
-# lo que lo dice. Se agranda, se mete hasta la mitad de la ventana de la
-# cabina y sale mas a la derecha del tren, como lo marco el negocio.
+# lo que lo dice. Va mas grande, metido hasta la mitad de la ventana de la
+# cabina y saliendo del tren hacia la derecha, como lo marco el negocio.
 #
-# En el dibujo original el cajon va DETRAS de la cabina: el techo le tapa la
-# parte de abajo del costado. Para ponerlo delante hay que inventarle esa
-# parte que nunca se dibujo, y su contorno.
+# No se estira el cajon original: estirar su costado lo dejaba torcido y con
+# cara de pegado. Se borra y se dibuja de nuevo como una caja de verdad: un
+# frente largo con el texto, y el costado y la tapa que se alejan hacia arriba
+# a la izquierda, en la misma direccion que en el dibujo original. Todas las
+# caras salen de trasladar el frente, asi la perspectiva no puede quedar mal.
 #
 # Coordenadas sobre la imagen ya recortada por quitar_fondo().
 
-# La cabina, que tapa el costado del cajon: su borde sigue el contorno oscuro
-# del techo y baja por la pared de atras.
+# La cabina, que se queda donde esta: su borde sigue el contorno oscuro del
+# techo y baja por la pared de atras. Sirve para no borrarla junto al cajon.
 CABINA = [(1380, 508), (1445, 508), (1500, 516), (1560, 543), (1605, 576),
           (1632, 618), (1652, 678), (1656, 880)]
 
-# El cajon original. Abajo termina en 841: lo que sigue es la repisa gris y la
-# punta del soporte, que son del tren y se quedan donde estan.
-CAJON = (1438, 400, 841)            # x izquierda, y arriba, y abajo
-CAJON_BORDE = (1438, 1453)          # contorno izquierdo original
-CAJON_FRENTE_X = 1690               # donde empieza la cara con el texto
-CAJON_COLUMNA_COSTADO = 1672        # tramo de costado que si se ve
-CAJON_COSTADO_DESDE_Y = 480         # desde aqui el costado se reconstruye
-CAJON_CONTORNO_DESDE_Y = 470        # y su contorno, solapado con el original
+# El cajon original que se borra: de x 1438 a la derecha, de y 400 a 841.
+CAJON_ORIGINAL = (1438, 400, 841)
 
-# Donde queda el cajon nuevo. El frente con el texto solo se escala, para que
-# "REPARTOS" no se deforme; lo que se alarga es el costado, que es liso.
-CAJON_ESCALA = 1.15
-CAJON_NUEVO_IZQUIERDA = 1400        # la mitad de la ventana
-CAJON_NUEVO_DERECHA = 2150          # sale del tren hacia la derecha
-CAJON_NUEVO_ABAJO = 885             # tapa la repisa gris que asomaba debajo
+# El frente, la cara con el texto. Sube un poco hacia la derecha, como la
+# carretera, para que la caja acompane la inclinacion del tren.
+FRENTE_IZQUIERDA, FRENTE_DERECHA = 1560, 2140
+FRENTE_ARRIBA = (474, 456)          # y de arriba en cada extremo
+FRENTE_ALTO = 410
+ESQUINA_ARRIBA = 95                 # la esquina redondeada de arriba a la derecha
+ESQUINA_ABAJO = 26
+# Hacia donde se aleja la caja. Con el costado corto la caja se lee larga.
+PROFUNDIDAD = (-150, -44)
+GROSOR_CONTORNO = 13                # igual de grueso que el del tren
+
+FRENTE_CLARO = (205, 42, 42)
+FRENTE_OSCURO = (160, 28, 36)
+COSTADO_CLARO = (165, 28, 36)
+COSTADO_OSCURO = (122, 22, 30)      # el costado mira lejos de la luz
+TAPA = (200, 78, 70)
+TAPA_BRILLO = (228, 108, 94)
+BRILLO_FRENTE = (232, 96, 86)
+BRILLO_TAPA = (240, 140, 124)
+LETRA = (255, 222, 205)
+CONTORNO_LETRA = (95, 28, 23)
+FUENTE = Path(r'C:\Windows\Fonts\bahnschrift.ttf')
+
+AUMENTO = 2  # se dibuja al doble y se reduce, para bordes suaves
+
+
+def _y_arriba(x: float) -> float:
+    t = (x - FRENTE_IZQUIERDA) / (FRENTE_DERECHA - FRENTE_IZQUIERDA)
+    return FRENTE_ARRIBA[0] + (FRENTE_ARRIBA[1] - FRENTE_ARRIBA[0]) * t
+
+
+def _y_abajo(x: float) -> float:
+    return _y_arriba(x) + FRENTE_ALTO
+
+
+def _arco(cx: float, cy: float, radio: float, desde: float, hasta: float, pasos: int):
+    return [(cx + radio * np.cos(np.radians(a)), cy + radio * np.sin(np.radians(a)))
+            for a in np.linspace(desde, hasta, pasos)]
+
+
+def _envolvente(puntos):
+    """Envolvente convexa, por cadena monotona."""
+    pts = sorted(set(puntos))
+
+    def cruz(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    bajo, alto = [], []
+    for p in pts:
+        while len(bajo) >= 2 and cruz(bajo[-2], bajo[-1], p) <= 0:
+            bajo.pop()
+        bajo.append(p)
+    for p in reversed(pts):
+        while len(alto) >= 2 and cruz(alto[-2], alto[-1], p) <= 0:
+            alto.pop()
+        alto.append(p)
+    return bajo[:-1] + alto[:-1]
+
+
+def _rellenar(lienzo: Image.Image, poligono, arriba, abajo) -> None:
+    """Pinta el poligono con un degradado de arriba hacia abajo."""
+    ys = [p[1] for p in poligono]
+    y0, y1 = int(min(ys)), int(max(ys)) + 1
+    t = np.clip((np.arange(lienzo.height) - y0) / max(1, y1 - y0), 0, 1)[:, None]
+    filas = np.array(arriba) * (1 - t) + np.array(abajo) * t
+    color = np.repeat(filas[:, None, :], lienzo.width, axis=1).astype(np.uint8)
+    capa = Image.fromarray(color, 'RGB').convert('RGBA')
+    mascara = Image.new('L', lienzo.size, 0)
+    ImageDraw.Draw(mascara).polygon(poligono, fill=255)
+    capa.putalpha(mascara)
+    lienzo.alpha_composite(capa)
+
+
+def dibujar_cajon(ancho: int, alto: int) -> Image.Image:
+    k = AUMENTO
+    dx, dy = PROFUNDIDAD
+
+    def z(p):
+        return (p[0] * k, p[1] * k)
+
+    def lejos(p):
+        return (p[0] + dx, p[1] + dy)
+
+    # Frente, con sus dos esquinas redondeadas a la derecha.
+    corte = FRENTE_DERECHA - ESQUINA_ARRIBA
+    centro_arriba = (corte, _y_arriba(FRENTE_DERECHA) + ESQUINA_ARRIBA)
+    centro_abajo = (FRENTE_DERECHA - ESQUINA_ABAJO, _y_abajo(FRENTE_DERECHA) - ESQUINA_ABAJO)
+    frente = ([(FRENTE_IZQUIERDA, _y_arriba(FRENTE_IZQUIERDA)), (corte, _y_arriba(corte))]
+              + _arco(*centro_arriba, ESQUINA_ARRIBA, -90, 0, 24)
+              + _arco(*centro_abajo, ESQUINA_ABAJO, 0, 90, 10)
+              + [(FRENTE_IZQUIERDA, _y_abajo(FRENTE_IZQUIERDA))])
+
+    # Costado: el borde izquierdo del frente y su copia alejada.
+    a1 = (FRENTE_IZQUIERDA, _y_arriba(FRENTE_IZQUIERDA))
+    a2 = (FRENTE_IZQUIERDA, _y_abajo(FRENTE_IZQUIERDA))
+    costado = [a1, a2, lejos(a2), lejos(a1)]
+
+    # Tapa: la cara de atras (el frente alejado), la franja que la une con el
+    # borde de arriba, y el tubo que barre la esquina redondeada.
+    borde_arriba = [a1, (corte, _y_arriba(corte))] + _arco(*centro_arriba, ESQUINA_ARRIBA, -90, -40, 10)
+    atras = [lejos(p) for p in frente]
+    franja = borde_arriba + [lejos(p) for p in reversed(borde_arriba)]
+    arco = _arco(*centro_arriba, ESQUINA_ARRIBA, -90, 0, 24)
+    tubo = _envolvente(arco + [lejos(p) for p in arco])
+
+    caras = {
+        'atras': [z(p) for p in atras],
+        'franja': [z(p) for p in franja],
+        'tubo': [z(p) for p in tubo],
+        'costado': [z(p) for p in costado],
+        'frente': [z(p) for p in frente],
+    }
+
+    lienzo = Image.new('RGBA', (ancho * k, alto * k), (0, 0, 0, 0))
+
+    # Contorno parejo: la silueta entera, engordada, en el color oscuro.
+    silueta = Image.new('L', lienzo.size, 0)
+    for poligono in caras.values():
+        ImageDraw.Draw(silueta).polygon(poligono, fill=255)
+    engordada = silueta.filter(ImageFilter.MaxFilter(GROSOR_CONTORNO * k | 1))
+    contorno = Image.new('RGBA', lienzo.size, (*CONTORNO, 255))
+    contorno.putalpha(engordada)
+    lienzo.alpha_composite(contorno)
+
+    for nombre in ('atras', 'franja', 'tubo'):
+        _rellenar(lienzo, caras[nombre], TAPA_BRILLO, TAPA)
+    _rellenar(lienzo, caras['costado'], COSTADO_CLARO, COSTADO_OSCURO)
+    _rellenar(lienzo, caras['frente'], FRENTE_CLARO, FRENTE_OSCURO)
+
+    d = ImageDraw.Draw(lienzo)
+    # Aristas entre caras, mas finas que el contorno de afuera.
+    fino = (GROSOR_CONTORNO // 2) * k
+    d.line([z(a1), z(a2)], fill=CONTORNO, width=fino)
+    d.line([z(p) for p in borde_arriba], fill=CONTORNO, width=fino)
+
+    # Brillos: bajo la arista del frente y a media tapa.
+    brillo = [z((x, _y_arriba(x) + 26)) for x in range(FRENTE_IZQUIERDA + 30, corte - 10, 10)]
+    d.line(brillo, fill=BRILLO_FRENTE, width=7 * k)
+    media = [(p[0] + dx * 0.55, p[1] + dy * 0.55) for p in borde_arriba[:2]]
+    d.line([z(p) for p in media], fill=BRILLO_TAPA, width=6 * k)
+
+    # El texto, centrado en el frente.
+    grande = ImageFont.truetype(str(FUENTE), 122 * k)
+    grande.set_variation_by_name('Bold Condensed')
+    chica = ImageFont.truetype(str(FUENTE), 74 * k)
+    chica.set_variation_by_name('Bold Condensed')
+    cx = (FRENTE_IZQUIERDA + FRENTE_DERECHA - 20) / 2
+    cy = (_y_arriba(cx) + _y_abajo(cx)) / 2
+    for texto, fuente, corrimiento in (('REPARTOS', grande, -56), ('ENTREGA RÁPIDA', chica, 66)):
+        d.text(z((cx, cy + corrimiento)), texto, font=fuente, anchor='mm',
+               fill=LETRA, stroke_width=6 * k, stroke_fill=CONTORNO_LETRA)
+
+    return lienzo.resize((ancho, alto), Image.LANCZOS)
 
 
 def agrandar_cajon(logo: Image.Image) -> Image.Image:
     ancho, alto = logo.size
     pixeles = np.array(logo)
 
+    # Se borra el cajon original, sin tocar la cabina.
     mascara = Image.new('L', (ancho, alto), 0)
     ImageDraw.Draw(mascara).polygon(
         CABINA + [(CABINA[-1][0], alto), (CABINA[0][0], alto)], fill=255
     )
     cabina = np.array(mascara) > 0
-
-    x0, y0, y1 = CAJON
+    x0, y0, y1 = CAJON_ORIGINAL
     en_caja = np.zeros((alto, ancho), bool)
     en_caja[y0:y1, x0:] = True
     cajon = en_caja & (pixeles[:, :, 3] > 0) & ~cabina
+    pixeles[cajon, 3] = 0
+    pixeles[cajon, :3] = CONTORNO
 
-    capa = np.zeros_like(pixeles)
-    capa[cajon] = pixeles[cajon]
-
-    # El costado se reconstruye fila por fila con el color del tramo que si
-    # se ve. Lo que habia ahi era en parte el techo de la cabina.
-    for y in range(CAJON_COSTADO_DESDE_Y, y1):
-        capa[y, CAJON_BORDE[1]:CAJON_COLUMNA_COSTADO] = pixeles[y, CAJON_COLUMNA_COSTADO]
-        capa[y, CAJON_BORDE[1]:CAJON_COLUMNA_COSTADO, 3] = 255
-
-    # Contorno izquierdo y de abajo, que antes no hacia falta.
-    borde = np.array([*CONTORNO, 255], np.uint8)
-    capa[CAJON_CONTORNO_DESDE_Y:y1, CAJON_BORDE[0]:CAJON_BORDE[1]] = borde
-    capa[y1 - 15:y1, CAJON_BORDE[0]:CAJON_COLUMNA_COSTADO] = borde
-
-    caja_img = Image.fromarray(capa, 'RGBA').crop((x0, y0, ancho, y1))
-    caja_img = caja_img.crop(caja_img.getbbox())
-
-    # Esquina de abajo a la izquierda redondeada, como la de arriba.
-    radio = 22
-    redondeo = Image.new('L', caja_img.size, 255)
-    rd = ImageDraw.Draw(redondeo)
-    rd.rectangle([0, caja_img.height - radio, radio, caja_img.height], fill=0)
-    rd.pieslice([0, caja_img.height - 2 * radio, 2 * radio, caja_img.height], 90, 180, fill=255)
-    a = np.array(caja_img)
-    a[:, :, 3] = np.minimum(a[:, :, 3], np.array(redondeo))
-    caja_img = Image.fromarray(a, 'RGBA')
-
-    # Tres tramos: contorno, costado (se alarga) y frente (no se deforma).
-    corte_borde = CAJON_BORDE[1] - CAJON_BORDE[0]
-    corte_frente = CAJON_FRENTE_X - CAJON_BORDE[0]
-    tramo_borde = caja_img.crop((0, 0, corte_borde, caja_img.height))
-    tramo_costado = caja_img.crop((corte_borde, 0, corte_frente, caja_img.height))
-    tramo_frente = caja_img.crop((corte_frente, 0, caja_img.width, caja_img.height))
-
-    total = int((CAJON_NUEVO_DERECHA - CAJON_NUEVO_IZQUIERDA) / CAJON_ESCALA)
-    ancho_costado = total - tramo_borde.width - tramo_frente.width
-    tramo_costado = tramo_costado.resize((ancho_costado, caja_img.height), Image.LANCZOS)
-
-    largo = Image.new('RGBA', (total, caja_img.height), (0, 0, 0, 0))
-    largo.paste(tramo_borde, (0, 0))
-    largo.paste(tramo_costado, (tramo_borde.width, 0))
-    largo.paste(tramo_frente, (tramo_borde.width + ancho_costado, 0))
-
-    grande = largo.resize(
-        (int(largo.width * CAJON_ESCALA), int(largo.height * CAJON_ESCALA)), Image.LANCZOS
-    )
-    arriba = CAJON_NUEVO_ABAJO - grande.height
-
-    resto = pixeles.copy()
-    resto[cajon, 3] = 0
-    resto[cajon, :3] = CONTORNO
-
-    ancho_final = max(ancho, CAJON_NUEVO_IZQUIERDA + grande.width)
-    sube = max(0, -arriba)
-    final = Image.new('RGBA', (ancho_final, alto + sube), (0, 0, 0, 0))
-    final.alpha_composite(Image.fromarray(resto, 'RGBA'), (0, sube))
+    ancho_final = max(ancho, FRENTE_DERECHA + GROSOR_CONTORNO)
+    final = Image.new('RGBA', (ancho_final, alto), (0, 0, 0, 0))
+    final.alpha_composite(Image.fromarray(pixeles, 'RGBA'))
     # Delante de la cabina: tapar parte de la ventana es a proposito.
-    final.alpha_composite(grande, (CAJON_NUEVO_IZQUIERDA, arriba + sube))
+    final.alpha_composite(dibujar_cajon(ancho_final, alto))
     return final
 
 
