@@ -161,8 +161,8 @@ def quitar_fondo(original: Image.Image) -> Image.Image:
 # ---------------------------------------------------------------------------
 #
 # Lo que el logo tiene que decir primero es "servicio express", y el cajon es
-# lo que lo dice, con la sola palabra EXPRESS. Va mas grande, montado sobre la
-# cabina y tapando parte de la ventana, como lo marco el negocio.
+# lo que lo dice, con la sola palabra EXPRESS. Va mas grande que el original,
+# pero metido detras de la cabina como en el dibujo, para que sea parte del tren.
 #
 # No se estira el cajon original: estirar su costado lo dejaba torcido y con
 # cara de pegado. Se borra y se dibuja de nuevo como una caja de verdad: un
@@ -180,20 +180,19 @@ CABINA = [(1380, 508), (1445, 508), (1500, 516), (1560, 543), (1605, 576),
 # El cajon original que se borra: de x 1438 a la derecha, de y 400 a 841.
 CAJON_ORIGINAL = (1438, 400, 841)
 
-# El frente, la cara con el texto. Va montado sobre la cabina y termina donde
-# termina el tren: colgado a la derecha parecia pegado aparte. Sube un poco
-# hacia la derecha, como la carretera.
-FRENTE_IZQUIERDA, FRENTE_DERECHA = 1420, 1985
-FRENTE_ARRIBA = (486, 470)          # y de arriba en cada extremo
-FRENTE_ALTO = 410
-ESQUINA_ARRIBA = 95                 # la esquina redondeada de arriba a la derecha
-ESQUINA_ABAJO = 26
-# Hacia donde se aleja la caja. Con el costado corto la caja se lee larga.
-PROFUNDIDAD = (-120, -40)
+# El frente, la cara con el texto. Empieza donde termina la pared de atras de
+# la cabina, y el costado se aleja hacia la izquierda por DETRAS de la cabina,
+# como en el dibujo original: asi el cajon se ve parte del tren. Abajo se
+# apoya en la repisa gris y el soporte.
+FRENTE_IZQUIERDA, FRENTE_DERECHA = 1676, 2010
+FRENTE_ARRIBA = (436, 428)          # y de arriba en cada extremo
+FRENTE_ALTO = 404
+ESQUINA_ARRIBA = 80                 # la esquina redondeada de arriba a la derecha
+ESQUINA_ABAJO = 22
+# Hacia donde se aleja la caja, igual que en el dibujo original.
+PROFUNDIDAD = (-250, -48)
+CABINA_MARGEN = 4                   # pixeles de mas al volver a pintar la cabina
 GROSOR_CONTORNO = 13                # igual de grueso que el del tren
-SOMBRA_CORRIMIENTO = (10, 16)
-SOMBRA_DIFUSION = 10
-SOMBRA_FUERZA = 0.55
 
 FRENTE_CLARO = (205, 42, 42)
 FRENTE_OSCURO = (160, 28, 36)
@@ -207,7 +206,7 @@ LETRA = (255, 222, 205)
 CONTORNO_LETRA = (95, 28, 23)
 FUENTE = Path(r'C:\Windows\Fonts\bahnschrift.ttf')
 TEXTO = 'EXPRESS'
-TEXTO_ANCHO = 0.80                  # parte del frente que ocupa el texto
+TEXTO_ANCHO = 0.84                  # parte del frente que ocupa el texto
 
 AUMENTO = 2  # se dibuja al doble y se reduce, para bordes suaves
 
@@ -367,19 +366,18 @@ def agrandar_cajon(logo: Image.Image) -> Image.Image:
     final.alpha_composite(Image.fromarray(pixeles, 'RGBA'))
     cajon_nuevo = dibujar_cajon(ancho_final, alto)
 
-    # Sombra del cajon sobre la cabina: sin ella parece flotar encima. Solo
-    # cae sobre el tren, no sobre el fondo transparente.
-    sombra = Image.new('L', (ancho_final, alto), 0)
-    sombra.paste(cajon_nuevo.getchannel('A'), SOMBRA_CORRIMIENTO)
-    sombra = sombra.filter(ImageFilter.GaussianBlur(SOMBRA_DIFUSION))
-    alfa = (np.array(sombra, np.float32) * SOMBRA_FUERZA
-            * (np.array(final.getchannel('A'), np.float32) / 255))
-    capa = Image.new('RGBA', (ancho_final, alto), (*CONTORNO, 0))
-    capa.putalpha(Image.fromarray(alfa.astype(np.uint8), 'L'))
-    final.alpha_composite(capa)
-
-    # Delante de la cabina: tapar parte de la ventana es a proposito.
+    # Detras de la cabina, como en el dibujo original: el techo le tapa la
+    # parte de abajo del costado y el cajon queda metido en el tren. La
+    # cabina se vuelve a pintar encima; la mascara se engorda un poco para
+    # que el contorno del techo quede entero.
     final.alpha_composite(cajon_nuevo)
+    encima = Image.fromarray(pixeles, 'RGBA')
+    tapa_cabina = mascara.filter(ImageFilter.MaxFilter(CABINA_MARGEN * 2 + 1))
+    encima.putalpha(Image.fromarray(
+        np.minimum(pixeles[:, :, 3], np.array(tapa_cabina)), 'L'))
+    lienzo_cabina = Image.new('RGBA', (ancho_final, alto), (0, 0, 0, 0))
+    lienzo_cabina.alpha_composite(encima)
+    final.alpha_composite(lienzo_cabina)
     return final
 
 
