@@ -182,7 +182,7 @@ function Puerta({
       aria-selected={activa}
       onClick={onClick}
       disabled={bloqueado}
-      className={`min-h-tactil rounded-2xl border text-lg font-bold transition active:scale-[0.98] ${
+      className={`min-h-tactil min-w-0 rounded-2xl border px-1 text-sm font-bold leading-tight transition active:scale-[0.98] min-[360px]:px-2 min-[360px]:text-base sm:text-lg ${
         activa
           ? 'border-entrada bg-entrada/15 text-entrada'
           : 'border-borde bg-panelClaro text-slate-400'
