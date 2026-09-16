@@ -197,17 +197,19 @@ ESQUINA_ABAJO = 33
 # Hacia donde se aleja la caja, igual que en el dibujo original.
 PROFUNDIDAD = (-300, -60)
 CABINA_MARGEN = 4                   # pixeles de mas al volver a pintar la cabina
-GROSOR_CONTORNO = 13                # igual de grueso que el del tren
+GROSOR_CONTORNO = 22                # sobre blanco hace falta mas grueso que en rojo
 
-FRENTE_CLARO = (205, 42, 42)
-FRENTE_OSCURO = (160, 28, 36)
-COSTADO_CLARO = (165, 28, 36)
-COSTADO_OSCURO = (122, 22, 30)      # el costado mira lejos de la luz
-TAPA = (200, 78, 70)
-TAPA_BRILLO = (228, 108, 94)
-BRILLO_FRENTE = (232, 96, 86)
-BRILLO_TAPA = (240, 140, 124)
-LETRA = (255, 222, 205)
+# Cajon blanco con la palabra en rojo: resalta sobre el tren rojo. El
+# contorno sigue siendo el oscuro del dibujo, para que no parezca pegado.
+FRENTE_CLARO = (252, 252, 250)
+FRENTE_OSCURO = (232, 234, 238)
+COSTADO_CLARO = (200, 204, 212)
+COSTADO_OSCURO = (196, 200, 208)    # el costado mira lejos de la luz
+TAPA = (242, 243, 246)
+TAPA_BRILLO = (255, 255, 255)
+BRILLO_FRENTE = (255, 255, 255)
+BRILLO_TAPA = (255, 255, 255)
+LETRA = (206, 32, 38)
 CONTORNO_LETRA = (95, 28, 23)
 FUENTE = Path(r'C:\Windows\Fonts\bahnschrift.ttf')
 TEXTO = 'EXPRESS'
@@ -309,10 +311,16 @@ def dibujar_cajon(ancho: int, alto: int) -> Image.Image:
     lienzo = Image.new('RGBA', (ancho * k, alto * k), (0, 0, 0, 0))
 
     # Contorno parejo: la silueta entera, engordada, en el color oscuro.
-    silueta = Image.new('L', lienzo.size, 0)
+    # Se engorda trazando cada borde con punta redonda: un filtro de maximo
+    # de este tamano tarda minutos sobre el lienzo al doble.
+    engordada = Image.new('L', lienzo.size, 0)
+    trazo = ImageDraw.Draw(engordada)
     for poligono in caras.values():
-        ImageDraw.Draw(silueta).polygon(poligono, fill=255)
-    engordada = silueta.filter(ImageFilter.MaxFilter(GROSOR_CONTORNO * k | 1))
+        trazo.polygon(poligono, fill=255)
+        trazo.line(poligono + [poligono[0]], fill=255, width=GROSOR_CONTORNO * k, joint='curve')
+        radio = GROSOR_CONTORNO * k / 2
+        for x, y in poligono:
+            trazo.ellipse([x - radio, y - radio, x + radio, y + radio], fill=255)
     contorno = Image.new('RGBA', lienzo.size, (*CONTORNO, 255))
     contorno.putalpha(engordada)
     lienzo.alpha_composite(contorno)
@@ -340,14 +348,14 @@ def dibujar_cajon(ancho: int, alto: int) -> Image.Image:
     while True:
         fuente = ImageFont.truetype(str(FUENTE), tamano * k)
         fuente.set_variation_by_name('Bold Condensed')
-        caja = d.textbbox((0, 0), TEXTO, font=fuente, stroke_width=7 * k)
+        caja = d.textbbox((0, 0), TEXTO, font=fuente, stroke_width=4 * k)
         if caja[2] - caja[0] <= ancho_util * k or tamano <= 40:
             break
         tamano -= 4
     cx = (TEXTO_DESDE_X + FRENTE_DERECHA - 16) / 2
     cy = (_y_arriba(cx) + _y_abajo(cx)) / 2 + 6
     d.text(z((cx, cy)), TEXTO, font=fuente, anchor='mm',
-           fill=LETRA, stroke_width=7 * k, stroke_fill=CONTORNO_LETRA)
+           fill=LETRA, stroke_width=4 * k, stroke_fill=CONTORNO_LETRA)
 
     return lienzo.resize((ancho, alto), Image.LANCZOS)
 
