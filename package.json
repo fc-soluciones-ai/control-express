@@ -18,6 +18,7 @@
     "test:servicios": "tsx scripts/base-de-pruebas.ts scripts/verificar-servicios.ts",
     "print:probar": "tsx scripts/probar-impresora.ts",
     "db:limpiar": "tsx scripts/limpiar-movimientos.ts",
+    "db:vaciar": "tsx scripts/vaciar-datos.ts",
     "db:respaldar": "tsx scripts/respaldar.ts",
     "db:restaurar": "tsx scripts/restaurar.ts",
     "test:respaldo": "tsx scripts/base-de-pruebas.ts scripts/verificar-respaldo.ts",
