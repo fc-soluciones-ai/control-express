@@ -25,6 +25,7 @@ import { cookies } from 'next/headers';
 
 import { prisma } from '@/lib/db/prisma';
 import { ErrorNegocio } from '@/server/errores';
+import { exigirPermiso, type Permiso } from '@/server/permisos';
 import { registrarEvento } from '@/server/services/auditoria';
 import { hashearPin, verificarPin } from '@/server/services/pin';
 
@@ -428,6 +429,19 @@ export async function exigirCajero(): Promise<CajeroEnSesion> {
       'La sesion de caja expiro. Vuelva a entrar con su PIN.',
     );
   }
+  return cajero;
+}
+
+/**
+ * Igual que exigirCajero, pero ademas comprueba que su rol alcance.
+ *
+ * Las acciones lo llaman en su primera linea. Tener las dos comprobaciones
+ * juntas evita el descuido de pedir la sesion y olvidar el permiso, que es
+ * como quedaron abiertas las pantallas de flota e importacion.
+ */
+export async function exigirCajeroCon(permiso: Permiso): Promise<CajeroEnSesion> {
+  const cajero = await exigirCajero();
+  exigirPermiso(cajero, permiso);
   return cajero;
 }
 

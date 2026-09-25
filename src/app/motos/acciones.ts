@@ -32,7 +32,7 @@ import {
   type TipoEntidad,
 } from '@/server/services/evidencia';
 import { guardarDatosGps, type DatosGps } from '@/server/services/gps';
-import { exigirCajero } from '@/server/services/sesion';
+import { exigirCajeroCon } from '@/server/services/sesion';
 import type { CategoriaMantenimiento, EstadoMoto, TipoMantenimiento } from '@/types/enums';
 
 export type Resultado<T> = { ok: true; datos: T } | { ok: false; mensaje: string };
@@ -57,7 +57,7 @@ export async function accionCrearMoto(
   entrada: EntradaMoto,
 ): Promise<Resultado<{ placa: string }>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     const creada = await crearMoto(entrada, cajero.id);
     refrescar();
     return { ok: true, datos: creada };
@@ -71,7 +71,7 @@ export async function accionEditarMoto(
   cambios: Partial<Omit<EntradaMoto, 'placa'>>,
 ): Promise<Resultado<null>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     await editarMoto(placa, cambios, cajero.id);
     refrescar();
     return { ok: true, datos: null };
@@ -93,7 +93,7 @@ export async function accionCambiarEstadoMoto(
   motivo?: string,
 ): Promise<Resultado<ResultadoCambioEstado>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     const resultado = await cambiarEstadoMoto(placa, estado, cajero.id, motivo ?? '');
     refrescar();
     revalidatePath('/');
@@ -109,7 +109,7 @@ export async function accionAsignarMoto(
   motivo?: string,
 ): Promise<Resultado<ResultadoAsignacion>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     const resultado = await asignarMoto(placa, choferId, cajero.id, motivo ?? 'Asignacion manual');
     refrescar();
     return { ok: true, datos: resultado };
@@ -120,7 +120,7 @@ export async function accionAsignarMoto(
 
 export async function accionLiberarMoto(choferId: string): Promise<Resultado<null>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     await liberarMotoDeChofer(choferId, cajero.id);
     refrescar();
     return { ok: true, datos: null };
@@ -144,7 +144,7 @@ export async function accionRegistrarGasto(entrada: {
   claveIdempotencia: string;
 }): Promise<Resultado<ResultadoMantenimiento>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     const resultado = await registrarMantenimiento({ ...entrada, cajeroId: cajero.id });
     refrescar();
     return { ok: true, datos: resultado };
@@ -162,7 +162,7 @@ export async function accionGuardarGps(
   datos: DatosGps,
 ): Promise<Resultado<null>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
     await guardarDatosGps(placa, datos, cajero.id);
     refrescar();
     return { ok: true, datos: null };
@@ -182,7 +182,7 @@ export async function accionSubirEvidencia(
   formulario: FormData,
 ): Promise<Resultado<{ foto: Evidencia; sustituidas: number }>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('FLOTA');
 
     const entidadTipo = String(formulario.get('entidadTipo') ?? '') as TipoEntidad;
     const entidadId = String(formulario.get('entidadId') ?? '');
@@ -208,7 +208,7 @@ export async function accionSubirEvidencia(
 
 export async function accionBorrarEvidencia(id: string): Promise<Resultado<null>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('BORRAR_EVIDENCIA');
     await borrarEvidencia(id, { cajeroId: cajero.id });
     refrescar();
     return { ok: true, datos: null };

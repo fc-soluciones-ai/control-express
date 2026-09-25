@@ -49,6 +49,7 @@ export default async function Dashboard() {
         efectivoEnCaja={caja.total}
         diaOperativo={diaOperativo}
         cajero={cajero.nombre}
+        rol={cajero.rol}
         choferesConTurno={enTurno.length}
         horasSinRespaldo={horasSinRespaldo}
       />

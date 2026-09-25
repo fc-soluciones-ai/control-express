@@ -19,7 +19,7 @@ import {
   type PrevisualizacionLote,
   type ResultadoCarga,
 } from '@/server/services/cargas';
-import { exigirCajero } from '@/server/services/sesion';
+import { exigirCajeroCon } from '@/server/services/sesion';
 import { TIPO_CORTE, TIPO_REPORTE, type TipoCorte, type TipoReporte } from '@/types/enums';
 
 export type Resultado<T> = { ok: true; datos: T } | { ok: false; mensaje: string };
@@ -102,7 +102,7 @@ export async function accionPrevisualizarLote(
   formData: FormData,
 ): Promise<Resultado<PrevisualizacionLote>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('IMPORTAR');
     const archivos = await leerFormulario(formData);
     return { ok: true, datos: await previsualizarLote(archivos, cajero.id) };
   } catch (e) {
@@ -114,7 +114,7 @@ export async function accionImportarLote(
   formData: FormData,
 ): Promise<Resultado<ResultadoCarga[]>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('IMPORTAR');
     const archivos = await leerFormulario(formData);
     const resultados = await importarLote(archivos, cajero.id);
 

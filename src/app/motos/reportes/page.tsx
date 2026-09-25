@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { PanelFlota } from '@/components/PanelFlota';
 import { historialDeFlota, resumenDeFlota } from '@/server/services/mantenimiento';
 import { listarFlota } from '@/server/services/motos';
+import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
 import type { CategoriaMantenimiento } from '@/types/enums';
 
@@ -38,6 +39,8 @@ function finDelDia(texto: string): Date | undefined {
 export default async function Reportes({ searchParams }: { searchParams: Parametros }) {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
+  // Sin el rol, la pantalla no se abre: esconder el boton no basta.
+  if (!tienePermiso(cajero.rol, 'FLOTA')) redirect('/');
 
   const filtros = {
     placa: searchParams.placa || undefined,

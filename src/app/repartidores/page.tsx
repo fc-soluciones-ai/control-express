@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation';
 
 import { PanelChoferes } from '@/components/PanelChoferes';
 import { listarChoferesConHistoria } from '@/server/services/choferes';
+import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,8 @@ export const dynamic = 'force-dynamic';
 export default async function Choferes() {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
+  // Sin el rol, la pantalla no se abre: esconder el boton no basta.
+  if (!tienePermiso(cajero.rol, 'REPARTIDORES')) redirect('/');
 
   const choferes = await listarChoferesConHistoria();
 

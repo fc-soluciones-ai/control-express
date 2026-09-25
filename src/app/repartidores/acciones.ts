@@ -21,7 +21,7 @@ import {
   reactivarChofer,
 } from '@/server/services/choferes';
 import { guardarFotoChofer } from '@/server/services/fotos';
-import { exigirCajero } from '@/server/services/sesion';
+import { exigirCajeroCon } from '@/server/services/sesion';
 
 export type Resultado<T> = { ok: true; datos: T } | { ok: false; mensaje: string };
 
@@ -58,7 +58,7 @@ export async function accionCrearChofer(
   formData: FormData,
 ): Promise<Resultado<{ id: string }>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('REPARTIDORES');
 
     const creado = await crearChofer(
       {
@@ -85,7 +85,7 @@ export async function accionCrearChofer(
 
 export async function accionEditarChofer(formData: FormData): Promise<Resultado<null>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('REPARTIDORES');
     const choferId = texto(formData, 'choferId');
     if (!choferId) throw new ErrorNegocio('DATOS_INVALIDOS', 'Falta el repartidor a editar.');
 
@@ -122,7 +122,7 @@ export async function accionCambiarEstadoChofer(
   activar: boolean,
 ): Promise<Resultado<null>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('REPARTIDORES');
     if (activar) await reactivarChofer(choferId, cajero.id);
     else await desactivarChofer(choferId, cajero.id);
 
@@ -144,7 +144,7 @@ export async function accionAsignarPinRepartidor(
   pin: string,
 ): Promise<Resultado<{ sesionesCerradas: number; nuevo: boolean }>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('REPARTIDORES');
     const resultado = await asignarPinRepartidor(String(choferId), String(pin), cajero);
     revalidatePath('/repartidores');
     return { ok: true, datos: resultado };
@@ -157,7 +157,7 @@ export async function accionQuitarAccesoRepartidor(
   choferId: string,
 ): Promise<Resultado<{ sesionesCerradas: number }>> {
   try {
-    const cajero = await exigirCajero();
+    const cajero = await exigirCajeroCon('REPARTIDORES');
     const resultado = await quitarAccesoRepartidor(String(choferId), cajero);
     revalidatePath('/repartidores');
     return { ok: true, datos: resultado };

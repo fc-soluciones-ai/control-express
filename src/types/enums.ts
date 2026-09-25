@@ -62,6 +62,8 @@ export const TIPO_EVENTO = [
   'MOTO_LIBERADA',
   'EVIDENCIA',
   'MANTENIMIENTO',
+  'USUARIO_CREADO',
+  'USUARIO_EDITADO',
 ] as const;
 export type TipoEvento = (typeof TIPO_EVENTO)[number];
 

@@ -15,11 +15,14 @@ import { useEffect } from 'react';
 
 import { accionSalir } from '@/app/acciones';
 import { formatearMoneda } from '@/lib/money/money';
+import { tienePermiso, type Permiso } from '@/server/permisos';
 
 interface Props {
   efectivoEnCaja: number;
   diaOperativo: string;
   cajero: string;
+  /** Rol de quien mira: los accesos que no puede abrir no se pintan. */
+  rol: string;
   choferesConTurno: number;
   /** Horas desde el ultimo respaldo. null si no hay ninguno. */
   horasSinRespaldo: number | null;
@@ -32,13 +35,27 @@ interface Props {
  */
 const HORAS_TOLERADAS_SIN_RESPALDO = 36;
 
-const ACCESOS = [
-  { href: '/importar', etiqueta: '📁 Importar Excel' },
-  { href: '/cierre', etiqueta: '📋 Cierre multiple' },
-  { href: '/historial', etiqueta: '📜 Historial' },
-  { href: '/repartidores', etiqueta: '👥 Repartidores' },
-  { href: '/motos', etiqueta: '🏍️ Motos' },
+/**
+ * Los accesos del tablero, cada uno con el permiso que hace falta.
+ *
+ * Pintar un boton que va a rebotar es una promesa que la pantalla no cumple:
+ * el cajero toca, espera, y recibe un mensaje de que no puede. Mejor no
+ * mostrarlo. La pantalla de destino igual comprueba el rol por su cuenta.
+ */
+const ACCESOS: Array<{ href: string; etiqueta: string; permiso: Permiso }> = [
+  { href: '/importar', etiqueta: '📁 Importar Excel', permiso: 'IMPORTAR' },
+  { href: '/cierre', etiqueta: '📋 Cierre multiple', permiso: 'CAJA' },
+  { href: '/historial', etiqueta: '📜 Historial', permiso: 'CAJA' },
+  { href: '/repartidores', etiqueta: '👥 Repartidores', permiso: 'REPARTIDORES' },
+  { href: '/motos', etiqueta: '🏍️ Motos', permiso: 'FLOTA' },
+  { href: '/configuracion', etiqueta: '⚙️ Configuracion', permiso: 'USUARIOS' },
 ];
+
+const NOMBRE_ROL: Record<string, string> = {
+  CAJERO: 'Cajero',
+  SUPERVISOR: 'Supervisor',
+  ADMIN: 'Administrador',
+};
 
 /** Cada cuanto se refresca la pantalla si nadie la toca. */
 const REFRESCO_MS = 45_000;
@@ -47,6 +64,7 @@ export function BarraSuperior({
   efectivoEnCaja,
   diaOperativo,
   cajero,
+  rol,
   choferesConTurno,
   horasSinRespaldo,
 }: Props) {
@@ -82,6 +100,7 @@ export function BarraSuperior({
         <div className="text-right">
           <p className="text-xs uppercase tracking-widest text-slate-500">Usuario</p>
           <p className="text-lg font-bold">{cajero}</p>
+          <p className="text-xs text-slate-500">{NOMBRE_ROL[rol] ?? rol}</p>
           <button
             type="button"
             className="mt-2 rounded-xl border border-borde px-4 py-2 text-sm text-slate-400 active:scale-95"
@@ -104,7 +123,7 @@ export function BarraSuperior({
       ) : null}
 
       <nav className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {ACCESOS.map((acceso) => (
+        {ACCESOS.filter((acceso) => tienePermiso(rol, acceso.permiso)).map((acceso) => (
           <Link
             key={acceso.href}
             href={acceso.href}

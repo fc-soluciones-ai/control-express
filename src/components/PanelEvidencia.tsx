@@ -69,6 +69,9 @@ export function PanelEvidencia({
   const [recien, setRecien] = useState<Evidencia[]>([]);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Borrar deja un hueco en la evidencia y no se puede deshacer: primero se
+  // pregunta, con la foto a la vista y su nombre en el texto.
+  const [confirmando, setConfirmando] = useState<string | null>(null);
 
   const subir = useCallback(
     async (archivo: File) => {
@@ -126,6 +129,7 @@ export function PanelEvidencia({
         return;
       }
       setRecien((previas) => previas.filter((f) => f.id !== id));
+      setConfirmando(null);
       setAviso('Foto borrada.');
       alCambiar?.();
       router.refresh();
@@ -243,14 +247,40 @@ export function PanelEvidencia({
                   {foto.descripcion ? (
                     <span className="mt-1 block italic">{foto.descripcion}</span>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void borrar(foto.id)}
-                    disabled={trabajando || bloqueado}
-                    className="mt-2 w-full rounded-lg border border-borde py-1 text-alerta active:scale-95"
-                  >
-                    Borrar
-                  </button>
+                  {confirmando === foto.id ? (
+                    <span className="mt-2 block">
+                      <span className="block text-alerta">
+                        ¿Borrar esta foto de {nombreDeTipo(foto.tipo)}? No se puede deshacer.
+                      </span>
+                      <span className="mt-2 grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmando(null)}
+                          disabled={trabajando}
+                          className="rounded-lg border border-borde py-1 active:scale-95"
+                        >
+                          No
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void borrar(foto.id)}
+                          disabled={trabajando}
+                          className="rounded-lg bg-alerta py-1 font-bold text-white active:scale-95"
+                        >
+                          Si, borrar
+                        </button>
+                      </span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmando(foto.id)}
+                      disabled={trabajando || bloqueado}
+                      className="mt-2 w-full rounded-lg border border-borde py-1 text-alerta active:scale-95"
+                    >
+                      Borrar
+                    </button>
+                  )}
                 </figcaption>
               </figure>
             ))}

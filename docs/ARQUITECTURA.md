@@ -713,3 +713,54 @@ Google puede usar lo que se le manda para mejorar sus productos, y aquí van
 facturas del negocio: conviene activar la facturación del proyecto en Google
 Cloud, que además quita los límites de uso gratuitos. Hay un tope de 30 fotos por hora por
 repartidor, porque cada lectura cuesta.
+
+---
+
+## 16. Roles, usuarios de caja y bitácora
+
+Los tres roles existían en la base desde el principio, pero no gobernaban
+nada: cualquier usuario de caja podía importar el Excel del mes, editar la
+flota o borrar una evidencia. El rol solo se consultaba para el PIN de los
+repartidores.
+
+La matriz está en `server/permisos.ts`, en un solo lugar y no repartida por las
+acciones, para poder discutirla con el negocio sin leer código:
+
+| Permiso | CAJERO | SUPERVISOR | ADMIN |
+|---|:--:|:--:|:--:|
+| `CAJA` — turnos, abonos, cierres, arqueos, reimpresión | ✅ | ✅ | ✅ |
+| `IMPORTAR` — Excel de Soft Restaurant | | ✅ | ✅ |
+| `FLOTA` — motos, gastos, GPS, asignaciones | | ✅ | ✅ |
+| `REPARTIDORES` — alta, edición, baja y su PIN | | ✅ | ✅ |
+| `BORRAR_EVIDENCIA` — quitar una foto ya subida | | ✅ | ✅ |
+| `USUARIOS` — usuarios de caja, roles y PIN | | | ✅ |
+
+Se aplica en **dos capas**: la acción del servidor llama a `exigirCajeroCon()`
+y la página se niega a abrir con `tienePermiso()`. Esconder el botón no es una
+defensa; solo evita el error honesto de intentar algo que va a rebotar.
+
+### Usuarios de caja
+
+`/configuracion/usuarios` (solo ADMIN) crea usuarios, cambia su rol, los saca
+de servicio y resetea el PIN. Antes esto solo existía como comando de terminal,
+lo que dejaba al negocio sin poder dar de alta a alguien fuera de horario y
+empujaba a que todos entraran con el mismo usuario, que es justo lo que rompe
+la firma de cada movimiento.
+
+Un usuario **nunca se borra**: se desactiva, porque sus abonos, cierres y
+arqueos quedan firmados por él. Dos reglas impiden quedarse afuera de la propia
+aplicación: nadie se desactiva ni se degrada a sí mismo, y siempre queda al
+menos un ADMIN activo. Desactivar o cambiarle el PIN a alguien cierra sus
+sesiones abiertas; cambiarse el PIN propio no cierra la sesión desde la que se
+hizo.
+
+### Qué cambió y desde dónde
+
+`eventos_auditoria` guarda ahora `valores_anteriores`, `valores_nuevos` e `ip`.
+Solo se guardan **los campos que cambiaron**: la fila entera esconde el cambio
+entre veinte campos iguales, y es el cambio lo que alguien va a buscar dentro
+de seis meses. `soloLoQueCambio()` en `services/auditoria.ts` hace esa resta, y
+`server/peticion.ts` saca la IP de las cabeceras, devolviendo null cuando el
+código corre desde un script y no desde el servidor web.
+
+El PIN nunca aparece en la bitácora, ni en el detalle ni en los valores.

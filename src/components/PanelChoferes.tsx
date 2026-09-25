@@ -18,6 +18,7 @@ import {
   accionEditarChofer,
   accionQuitarAccesoRepartidor,
 } from '@/app/repartidores/acciones';
+import { LARGO_MINIMO_PIN, TecladoPin } from '@/components/TecladoPin';
 import { encogerImagen } from '@/lib/imagen';
 import { clasificarDiferencia, formatearMoneda } from '@/lib/money/money';
 import type { ChoferConHistoria } from '@/server/services/choferes';
@@ -527,15 +528,6 @@ function Campo({
   );
 }
 
-const TECLAS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'BORRAR', '0', 'VER'] as const;
-
-/**
- * Teclado para ponerle el PIN a un repartidor.
- *
- * Se muestra con puntos y se puede ver con un toque: el administrador lo
- * tiene que dictar, pero no hace falta que quede a la vista de todo el
- * mostrador mientras lo teclea.
- */
 function ModalPin({
   chofer,
   alCerrar,
@@ -546,12 +538,11 @@ function ModalPin({
   alGuardar: (mensaje: string) => void;
 }) {
   const [pin, setPin] = useState('');
-  const [ver, setVer] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const guardar = useCallback(async () => {
-    if (enviando || pin.length < 4) return;
+    if (enviando || pin.length < LARGO_MINIMO_PIN) return;
     setEnviando(true);
     setError(null);
     const respuesta = await accionAsignarPinRepartidor(chofer.id, pin);
@@ -567,12 +558,6 @@ function ModalPin({
           : ''),
     );
   }, [alGuardar, chofer, enviando, pin]);
-
-  const etiqueta = (tecla: (typeof TECLAS)[number]) => {
-    if (tecla === 'BORRAR') return 'Borrar';
-    if (tecla === 'VER') return ver ? 'Ocultar' : 'Ver';
-    return tecla;
-  };
 
   return (
     <div
@@ -603,38 +588,8 @@ function ModalPin({
           Entre 4 y 6 digitos. Con este PIN entra desde su telefono, en la pestana Repartidor.
         </p>
 
-        <div
-          className="cifra mt-4 flex h-20 items-center justify-center rounded-2xl border border-borde bg-fondo text-4xl font-bold tracking-[0.4em]"
-          aria-live="polite"
-        >
-          {pin.length === 0 ? (
-            <span className="text-base tracking-normal text-slate-600">Teclee el PIN</span>
-          ) : ver ? (
-            pin
-          ) : (
-            '\u2022'.repeat(pin.length)
-          )}
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {TECLAS.map((tecla) => (
-            <button
-              key={tecla}
-              type="button"
-              disabled={enviando}
-              onClick={() => {
-                setError(null);
-                if (tecla === 'BORRAR') setPin((p) => p.slice(0, -1));
-                else if (tecla === 'VER') setVer((v) => !v);
-                else setPin((p) => (p.length < 6 ? p + tecla : p));
-              }}
-              className={`h-16 rounded-2xl border border-borde bg-panelClaro font-bold active:scale-95 ${
-                tecla.length === 1 ? 'text-2xl' : 'text-sm text-slate-300'
-              }`}
-            >
-              {etiqueta(tecla)}
-            </button>
-          ))}
+        <div className="mt-4">
+          <TecladoPin valor={pin} alCambiar={setPin} bloqueado={enviando} />
         </div>
 
         {error ? (
@@ -646,7 +601,7 @@ function ModalPin({
         <button
           type="button"
           onClick={guardar}
-          disabled={enviando || pin.length < 4}
+          disabled={enviando || pin.length < LARGO_MINIMO_PIN}
           className="boton-tactil mt-5 h-16 w-full bg-entrada text-xl text-slate-950 disabled:bg-slate-700 disabled:text-slate-500"
         >
           {enviando ? 'Guardando...' : 'Guardar PIN'}

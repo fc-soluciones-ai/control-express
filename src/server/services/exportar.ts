@@ -27,6 +27,9 @@ const NOMBRE_EVENTO: Record<string, string> = {
   CHOFER_DESACTIVADO: 'Baja de repartidor',
   REIMPRESION: 'Reimpresion',
   LOGIN: 'Entrada a la caja',
+  PIN_CAMBIADO: 'Cambio de PIN',
+  USUARIO_CREADO: 'Alta de usuario de caja',
+  USUARIO_EDITADO: 'Cambio de usuario de caja',
 };
 
 function valorLegible(clave: string, valor: unknown): string {

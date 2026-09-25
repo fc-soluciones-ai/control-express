@@ -13,6 +13,7 @@ import { GrillaFlota } from '@/components/GrillaFlota';
 import { alertasDeFlota } from '@/server/services/mantenimiento';
 import { evidenciaDe, type Evidencia } from '@/server/services/evidencia';
 import { choferesSinMoto, listarFlota } from '@/server/services/motos';
+import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,8 @@ export const dynamic = 'force-dynamic';
 export default async function Motos() {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
+  // Sin el rol, la pantalla no se abre: esconder el boton no basta.
+  if (!tienePermiso(cajero.rol, 'FLOTA')) redirect('/');
 
   const [flota, alertas, choferesLibres] = await Promise.all([
     listarFlota(),
