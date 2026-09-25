@@ -622,7 +622,11 @@ export async function registrarGasolinaLeida(entrada: {
         `La factura es de hace mas de ${DIAS_MAXIMOS_FACTURA} dias. Esa la registra la caja.`,
       );
     }
-    if (km - moto.kilometrajeActual > SALTO_MAXIMO_KM) {
+    // El tope del salto atrapa un digito mal leido comparando contra lo que la
+    // moto ya marcaba. Una moto dada de alta en cero todavia no tiene con que
+    // comparar: su primera lectura es justamente la que le pone el odometro al
+    // dia, y con el tope puesto una moto con 500.000 km no podria cargar nunca.
+    if (moto.kilometrajeActual > 0 && km - moto.kilometrajeActual > SALTO_MAXIMO_KM) {
       throw new ErrorNegocio(
         'DATOS_INVALIDOS',
         `Se leyo ${km.toLocaleString('es-CR')} km y la moto marcaba ` +

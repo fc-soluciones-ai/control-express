@@ -326,6 +326,59 @@ async function main(): Promise<void> {
     'DATOS_INVALIDOS',
   );
 
+  // Una moto dada de alta en cero no tiene contra que comparar: su primera
+  // lectura es la que le pone el odometro al dia, aunque marque medio millon.
+  await crearMoto(
+    { placa: 'MOT300', marca: 'Fredon', modelo: 'Fire 200', anio: 2020, kilometrajeActual: 0 },
+    cajero.id,
+  );
+  await asignarMoto('MOT300', pinito.id, cajero.id);
+  const odoNuevo = await leerFoto(
+    { choferId: pinito.id, tipo: 'ODOMETRO', contenido: foto() },
+    lectorCon({ legible: true, kilometraje: 502_912 }),
+  );
+  const facNuevo = await leerFoto(
+    { choferId: pinito.id, tipo: 'FACTURA', contenido: foto() },
+    lectorCon(facturaBuena({ numeroFactura: 'CERO-1', totalColones: 6202 })),
+  );
+  comprobar(
+    'una moto en cero acepta su primera lectura',
+    await codigoDe(
+      registrarGasolinaLeida({
+        choferId: pinito.id,
+        lecturaOdometroId: odoNuevo.id,
+        lecturaFacturaId: facNuevo.id,
+        claveIdempotencia: 'cero-1',
+      }),
+    ),
+    'SIN_ERROR',
+  );
+  comprobar(
+    'y desde ahi ya queda protegida del salto',
+    (await prisma.motocicleta.findUnique({ where: { placa: 'MOT300' } }))?.kilometrajeActual,
+    502_912,
+  );
+  const odoSalto = await leerFoto(
+    { choferId: pinito.id, tipo: 'ODOMETRO', contenido: foto() },
+    lectorCon({ legible: true, kilometraje: 502_912 + SALTO_MAXIMO_KM + 1 }),
+  );
+  const facSalto = await leerFoto(
+    { choferId: pinito.id, tipo: 'FACTURA', contenido: foto() },
+    lectorCon(facturaBuena({ numeroFactura: 'CERO-2', totalColones: 7000 })),
+  );
+  comprobar(
+    'el siguiente salto grande si se rechaza',
+    await codigoDe(
+      registrarGasolinaLeida({
+        choferId: pinito.id,
+        lecturaOdometroId: odoSalto.id,
+        lecturaFacturaId: facSalto.id,
+        claveIdempotencia: 'cero-2',
+      }),
+    ),
+    'DATOS_INVALIDOS',
+  );
+
   // Las lecturas de los intentos fallidos no quedan reservadas.
   const reservadasSinGasto = await prisma.lecturaFoto.count({
     where: { usadaEn: { not: null }, gastoId: null },
