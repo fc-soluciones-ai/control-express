@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Cabecera } from '@/components/Cabecera';
 import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
 
@@ -17,21 +18,19 @@ export const dynamic = 'force-dynamic';
 export default async function Configuracion() {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
-  if (!tienePermiso(cajero.rol, 'USUARIOS')) redirect('/');
+  if (!tienePermiso(cajero.rol, 'USUARIOS')) redirect('/sin-permiso');
 
   return (
     <main className="mx-auto max-w-4xl p-5">
+      <Cabecera
+        migas={[{ etiqueta: 'Inicio', href: '/' }, { etiqueta: 'Configuracion' }]}
+        usuario={cajero}
+      />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Configuracion</h1>
           <p className="text-slate-400">Usuarios, accesos y parametros del sistema</p>
         </div>
-        <Link
-          href="/"
-          className="boton-tactil shrink-0 border border-borde bg-panelClaro px-6 text-slate-200"
-        >
-          Volver
-        </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

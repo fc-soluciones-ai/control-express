@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Cabecera } from '@/components/Cabecera';
 import { PanelCierre } from '@/components/PanelCierre';
 import { diaOperativoDe } from '@/lib/fechas';
 import { efectivoTeoricoEnCaja } from '@/server/services/caja';
@@ -18,19 +19,12 @@ import { turnosAbiertos } from '@/server/services/turnos';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Cierre({
-  searchParams,
-}: {
-  searchParams: { repartidor?: string };
-}) {
+export default async function Cierre({ searchParams }: { searchParams: { repartidor?: string } }) {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
 
   const diaOperativo = diaOperativoDe();
-  const [turnos, caja] = await Promise.all([
-    turnosAbiertos(),
-    efectivoTeoricoEnCaja(diaOperativo),
-  ]);
+  const [turnos, caja] = await Promise.all([turnosAbiertos(), efectivoTeoricoEnCaja(diaOperativo)]);
 
   const previsualizaciones: PrevisualizacionCierre[] = await Promise.all(
     turnos.map((turno) => previsualizarCierre(turno.choferId, diaOperativo)),
@@ -38,6 +32,10 @@ export default async function Cierre({
 
   return (
     <main className="mx-auto max-w-6xl p-5">
+      <Cabecera
+        migas={[{ etiqueta: 'Inicio', href: '/' }, { etiqueta: 'Cierre de turno' }]}
+        usuario={cajero}
+      />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Cierre de turno</h1>
@@ -45,12 +43,6 @@ export default async function Cierre({
             Dia operativo {diaOperativo} · en caja {cajero.nombre}
           </p>
         </div>
-        <Link
-          href="/"
-          className="boton-tactil shrink-0 border border-borde bg-panelClaro px-6 text-slate-200"
-        >
-          Volver
-        </Link>
       </div>
 
       <PanelCierre

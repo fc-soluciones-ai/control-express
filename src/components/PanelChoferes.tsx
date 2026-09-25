@@ -20,6 +20,7 @@ import {
 } from '@/app/repartidores/acciones';
 import { LARGO_MINIMO_PIN, TecladoPin } from '@/components/TecladoPin';
 import { encogerImagen } from '@/lib/imagen';
+import { useAvisoSinGuardar } from '@/lib/sinGuardar';
 import { clasificarDiferencia, formatearMoneda } from '@/lib/money/money';
 import type { ChoferConHistoria } from '@/server/services/choferes';
 
@@ -69,10 +70,7 @@ export function PanelChoferes({ choferes, esAdministrador }: Props) {
     async (chofer: ChoferConHistoria) => {
       setTrabajando(chofer.id);
       setError(null);
-      const respuesta = await accionCambiarEstadoChofer(
-        chofer.id,
-        chofer.estado !== 'ACTIVO',
-      );
+      const respuesta = await accionCambiarEstadoChofer(chofer.id, chofer.estado !== 'ACTIVO');
       if (!respuesta.ok) setError(respuesta.mensaje);
       else router.refresh();
       setTrabajando(null);
@@ -139,13 +137,13 @@ export function PanelChoferes({ choferes, esAdministrador }: Props) {
                 setFormulario({ modo: 'EDITAR', chofer });
               }}
               alCambiarEstado={() => cambiarEstado(chofer)}
-            esAdministrador={esAdministrador}
-            alAsignarPin={() => {
-              setError(null);
-              setAviso(null);
-              setParaPin(chofer);
-            }}
-            alQuitarAcceso={() => quitarAcceso(chofer)}
+              esAdministrador={esAdministrador}
+              alAsignarPin={() => {
+                setError(null);
+                setAviso(null);
+                setParaPin(chofer);
+              }}
+              alQuitarAcceso={() => quitarAcceso(chofer)}
             />
           ))}
         </Seccion>
@@ -208,9 +206,7 @@ function Ficha({
   const clasificacion = clasificarDiferencia(chofer.diferenciaAcumulada);
 
   return (
-    <li
-      className={`rounded-2xl border border-borde bg-fondo p-4 ${activo ? '' : 'opacity-60'}`}
-    >
+    <li className={`rounded-2xl border border-borde bg-fondo p-4 ${activo ? '' : 'opacity-60'}`}>
       <div className="flex flex-wrap items-center gap-4">
         {chofer.fotoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -277,9 +273,7 @@ function Ficha({
           disabled={trabajando || (activo && chofer.tieneTurnoAbierto)}
           onClick={alCambiarEstado}
           title={
-            activo && chofer.tieneTurnoAbierto
-              ? 'Cierre su turno antes de desactivarlo'
-              : undefined
+            activo && chofer.tieneTurnoAbierto ? 'Cierre su turno antes de desactivarlo' : undefined
           }
         >
           {trabajando ? '...' : activo ? 'Desactivar' : 'Reactivar'}
@@ -368,8 +362,10 @@ function ModalChofer({
   const chofer = formulario.modo === 'EDITAR' ? formulario.chofer : null;
   const entradaFoto = useRef<HTMLInputElement>(null);
   const [vistaPrevia, setVistaPrevia] = useState<string | null>(chofer?.fotoUrl ?? null);
+  const [tocado, setTocado] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const confirmarSalida = useAvisoSinGuardar(tocado && !enviando);
 
   const enviar = useCallback(
     async (evento: React.FormEvent<HTMLFormElement>) => {
@@ -409,7 +405,11 @@ function ModalChofer({
       role="dialog"
       aria-modal="true"
     >
-      <form onSubmit={enviar} className="tarjeta w-full max-w-xl p-6">
+      <form
+        onSubmit={enviar}
+        onChange={() => setTocado(true)}
+        className="tarjeta w-full max-w-xl p-6"
+      >
         <header className="flex items-start justify-between gap-4">
           <h2 className="text-2xl font-bold">
             {formulario.modo === 'CREAR' ? 'Nuevo repartidor' : 'Editar repartidor'}
@@ -418,7 +418,7 @@ function ModalChofer({
             type="button"
             aria-label="Cerrar"
             className="h-12 w-12 shrink-0 rounded-full border border-borde text-2xl text-slate-400 active:scale-95"
-            onClick={alCerrar}
+            onClick={() => confirmarSalida(alCerrar)}
             disabled={enviando}
           >
             ×
@@ -455,7 +455,9 @@ function ModalChofer({
             >
               {vistaPrevia ? 'Cambiar foto' : 'Subir foto'}
             </button>
-            <p className="mt-2 text-xs text-slate-500">JPG, PNG o WEBP. Se encoge sola antes de subirla.</p>
+            <p className="mt-2 text-xs text-slate-500">
+              JPG, PNG o WEBP. Se encoge sola antes de subirla.
+            </p>
           </div>
         </div>
 

@@ -406,9 +406,7 @@ function ModalNuevoUsuario({
               disabled={enviando}
               onClick={() => setRol(r.valor)}
               className={`rounded-2xl border p-3 text-left transition active:scale-[0.99] ${
-                rol === r.valor
-                  ? 'border-entrada bg-entrada/15'
-                  : 'border-borde bg-panelClaro'
+                rol === r.valor ? 'border-entrada bg-entrada/15' : 'border-borde bg-panelClaro'
               }`}
             >
               <span className="block font-bold">{r.etiqueta}</span>
@@ -475,7 +473,12 @@ function ModalPinUsuario({
   }, [alGuardar, enviando, pin, usuario]);
 
   return (
-    <Marco titulo="PIN de entrada" subtitulo={usuario.nombre} alCerrar={alCerrar} bloqueado={enviando}>
+    <Marco
+      titulo="PIN de entrada"
+      subtitulo={usuario.nombre}
+      alCerrar={alCerrar}
+      bloqueado={enviando}
+    >
       <p className="mt-4 text-sm text-slate-400">
         Entre 4 y 6 digitos. El PIN anterior deja de servir y se cierran sus sesiones abiertas.
       </p>

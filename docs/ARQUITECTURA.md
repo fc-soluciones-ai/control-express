@@ -764,3 +764,54 @@ de seis meses. `soloLoQueCambio()` en `services/auditoria.ts` hace esa resta, y
 código corre desde un script y no desde el servidor web.
 
 El PIN nunca aparece en la bitácora, ni en el detalle ni en los valores.
+
+---
+
+## 17. Navegación: cabecera, migas y pantallas de sistema
+
+Cada pantalla ponía su propio enlace **Volver** a mano y el botón de salir solo
+existía en el tablero: para cerrar sesión había que volver al inicio primero.
+Las pantallas hondas (flota → gastos → reportes) no decían de dónde venían.
+
+`components/Cabecera.tsx` resuelve las tres cosas a la vez y va **pegada
+arriba**: en una tableta de mostrador el dedo entra por el borde superior, y en
+una pantalla larga el camino de vuelta no puede quedar fuera de la vista.
+
+- **← Atrás** lleva a la última miga con enlace, o a donde diga `volverA`.
+- **Migas** en pantallas grandes; en el teléfono se muestra el título actual,
+  porque tres niveles no caben en 360 píxeles.
+- **Menú de usuario** con Mi cuenta y Cerrar sesión, y el rol debajo del
+  nombre, que es lo que explica por qué un botón no aparece.
+
+Las pantallas del repartidor (`/mi` y `/mi/gasolina`) quedaron como estaban: son
+de un solo nivel, ya traen su salida, y unas migas de un solo escalón solo
+roban espacio en un teléfono.
+
+### Mi cuenta
+
+`/mi-cuenta` entra cualquier usuario de caja, sin importar el rol: cambiar el
+PIN propio no es administración, es higiene, y tener que pedírselo a otro es lo
+que hace que los PIN no se cambien nunca. Pide el PIN actual antes del nuevo;
+sin eso, quien encuentre una pantalla abierta se queda con el usuario de otro.
+
+### 404, 403 y 500
+
+| Ruta | Cuándo | Qué hace |
+|---|---|---|
+| `app/not-found.tsx` | dirección que no existe | Ofrece el camino al inicio |
+| `app/sin-permiso/page.tsx` | el rol no alcanza | Dice a quién pedírselo |
+| `app/error.tsx` | falla una pantalla | Muestra el código del fallo y deja reintentar |
+| `app/global-error.tsx` | falla antes del layout | Trae su propio HTML y estilos en línea |
+
+El 403 es una pantalla y no un redirect callado al inicio: quedarse sin
+explicación frente a una pantalla que "no hace nada" es peor que leer que hace
+falta otro rol. El 500 muestra el `digest`, que es lo único que sirve para
+encontrar el fallo en los registros, y nunca el detalle técnico.
+
+### Cambios sin guardar
+
+`lib/sinGuardar.ts` cubre las dos salidas: cerrar la pestaña (solo el navegador
+puede frenarlo, con su propio diálogo) y cerrar el formulario desde la pantalla,
+que se pregunta en el idioma del negocio. Se aplica a la ficha de moto y a la
+del repartidor, que son las largas: veinte campos y una foto, con la equis a un
+centímetro del último campo.

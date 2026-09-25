@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Cabecera } from '@/components/Cabecera';
 import { PanelUsuarios } from '@/components/PanelUsuarios';
 import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
@@ -19,12 +20,20 @@ export const dynamic = 'force-dynamic';
 export default async function Usuarios() {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
-  if (!tienePermiso(cajero.rol, 'USUARIOS')) redirect('/');
+  if (!tienePermiso(cajero.rol, 'USUARIOS')) redirect('/sin-permiso');
 
   const usuarios = await listarUsuarios();
 
   return (
     <main className="mx-auto max-w-4xl p-5">
+      <Cabecera
+        migas={[
+          { etiqueta: 'Inicio', href: '/' },
+          { etiqueta: 'Configuracion', href: '/configuracion' },
+          { etiqueta: 'Usuarios de caja' },
+        ]}
+        usuario={cajero}
+      />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Usuarios de caja</h1>
@@ -33,12 +42,6 @@ export default async function Usuarios() {
             firmado por quien lo hizo
           </p>
         </div>
-        <Link
-          href="/configuracion"
-          className="boton-tactil shrink-0 border border-borde bg-panelClaro px-6 text-slate-200"
-        >
-          Volver
-        </Link>
       </div>
 
       <PanelUsuarios usuarios={usuarios} yoId={cajero.id} />

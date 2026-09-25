@@ -120,9 +120,7 @@ export function PanelEvidencia({
       setTrabajando(true);
       setError(null);
       const respuesta =
-        canal === 'CAJA'
-          ? await accionBorrarEvidencia(id)
-          : await accionBorrarEvidenciaMia(id);
+        canal === 'CAJA' ? await accionBorrarEvidencia(id) : await accionBorrarEvidenciaMia(id);
       setTrabajando(false);
       if (!respuesta.ok) {
         setError(respuesta.mensaje);
@@ -137,8 +135,7 @@ export function PanelEvidencia({
     [alCambiar, canal, router],
   );
 
-  const nombreDeTipo = (valor: string) =>
-    tipos.find((t) => t.valor === valor)?.etiqueta ?? valor;
+  const nombreDeTipo = (valor: string) => tipos.find((t) => t.valor === valor)?.etiqueta ?? valor;
 
   const vistos = new Set(evidencia.map((f) => f.id));
   const todas = [...recien.filter((f) => !vistos.has(f.id)), ...evidencia];
@@ -173,9 +170,7 @@ export function PanelEvidencia({
             ))}
           </div>
 
-          <p className="mt-2 text-xs text-slate-500">
-            {tipos.find((t) => t.valor === tipo)?.nota}
-          </p>
+          <p className="mt-2 text-xs text-slate-500">{tipos.find((t) => t.valor === tipo)?.nota}</p>
 
           <input
             type="text"
@@ -238,9 +233,7 @@ export function PanelEvidencia({
                   />
                 </a>
                 <figcaption className="p-2 text-xs text-slate-400">
-                  <span className="block font-bold text-slate-300">
-                    {nombreDeTipo(foto.tipo)}
-                  </span>
+                  <span className="block font-bold text-slate-300">{nombreDeTipo(foto.tipo)}</span>
                   <span className="block">
                     {new Date(foto.tomadaEn).toLocaleDateString('es-CR')} · {foto.cajeroNombre}
                   </span>

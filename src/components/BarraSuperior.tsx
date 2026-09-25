@@ -13,14 +13,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
-import { accionSalir } from '@/app/acciones';
 import { formatearMoneda } from '@/lib/money/money';
 import { tienePermiso, type Permiso } from '@/server/permisos';
 
 interface Props {
   efectivoEnCaja: number;
   diaOperativo: string;
-  cajero: string;
   /** Rol de quien mira: los accesos que no puede abrir no se pintan. */
   rol: string;
   choferesConTurno: number;
@@ -51,19 +49,12 @@ const ACCESOS: Array<{ href: string; etiqueta: string; permiso: Permiso }> = [
   { href: '/configuracion', etiqueta: '⚙️ Configuracion', permiso: 'USUARIOS' },
 ];
 
-const NOMBRE_ROL: Record<string, string> = {
-  CAJERO: 'Cajero',
-  SUPERVISOR: 'Supervisor',
-  ADMIN: 'Administrador',
-};
-
 /** Cada cuanto se refresca la pantalla si nadie la toca. */
 const REFRESCO_MS = 45_000;
 
 export function BarraSuperior({
   efectivoEnCaja,
   diaOperativo,
-  cajero,
   rol,
   choferesConTurno,
   horasSinRespaldo,
@@ -85,9 +76,7 @@ export function BarraSuperior({
     <header className="tarjeta mb-6 p-5">
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
-          <p className="text-xs uppercase tracking-widest text-slate-500">
-            Total efectivo en caja
-          </p>
+          <p className="text-xs uppercase tracking-widest text-slate-500">Total efectivo en caja</p>
           <p className="cifra mt-1 text-cifraGrande text-entrada">
             {formatearMoneda(efectivoEnCaja)}
           </p>
@@ -95,19 +84,6 @@ export function BarraSuperior({
             Dia operativo {diaOperativo} · {choferesConTurno} repartidor
             {choferesConTurno === 1 ? '' : 'es'} con turno abierto
           </p>
-        </div>
-
-        <div className="text-right">
-          <p className="text-xs uppercase tracking-widest text-slate-500">Usuario</p>
-          <p className="text-lg font-bold">{cajero}</p>
-          <p className="text-xs text-slate-500">{NOMBRE_ROL[rol] ?? rol}</p>
-          <button
-            type="button"
-            className="mt-2 rounded-xl border border-borde px-4 py-2 text-sm text-slate-400 active:scale-95"
-            onClick={() => void accionSalir()}
-          >
-            Salir
-          </button>
         </div>
       </div>
 
@@ -117,8 +93,7 @@ export function BarraSuperior({
           {horasSinRespaldo === null
             ? 'Nunca se ha respaldado la base de datos.'
             : `El ultimo respaldo tiene ${Math.floor(horasSinRespaldo)} horas.`}{' '}
-          Avise al encargado: sin respaldo, un fallo se lleva toda la historia del
-          negocio.
+          Avise al encargado: sin respaldo, un fallo se lleva toda la historia del negocio.
         </p>
       ) : null}
 

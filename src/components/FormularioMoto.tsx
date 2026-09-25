@@ -20,6 +20,8 @@
 
 import { useState } from 'react';
 
+import { useAvisoSinGuardar } from '@/lib/sinGuardar';
+
 import { ModalNumero } from '@/components/ModalNumero';
 import { PanelGps, type DatosGpsFormulario } from '@/components/PanelGps';
 import { PanelEntregaMoto } from '@/components/PanelEntregaMoto';
@@ -107,6 +109,12 @@ export function FormularioMoto({
 
   const [pestana, setPestana] = useState<'GENERAL' | 'TECNICA' | 'GPS' | 'FOTOS'>('GENERAL');
 
+  // Veinte campos y una foto: cerrar sin querer borra diez minutos de trabajo.
+  // Basta con saber que alguien escribio algo; no hace falta comparar campo a
+  // campo contra lo que habia.
+  const [tocado, setTocado] = useState(false);
+  const confirmarSalida = useAvisoSinGuardar(tocado && !enProceso);
+
   const [placa, setPlaca] = useState(moto?.placa ?? '');
   const [marca, setMarca] = useState(moto?.marca ?? '');
   const [modelo, setModelo] = useState(moto?.modelo ?? '');
@@ -142,7 +150,8 @@ export function FormularioMoto({
   const comodinBloqueada = hayComodin && !moto?.esComodin;
 
   const anioNumero = Number(anio);
-  const anioValido = Number.isInteger(anioNumero) && anioNumero >= 1980 && anioNumero <= ANIO_MAXIMO;
+  const anioValido =
+    Number.isInteger(anioNumero) && anioNumero >= 1980 && anioNumero <= ANIO_MAXIMO;
   const completo =
     placa.trim().length > 0 && marca.trim().length > 0 && modelo.trim().length > 0 && anioValido;
 
@@ -212,6 +221,7 @@ export function FormularioMoto({
     >
       <form
         className="tarjeta flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden"
+        onChange={() => setTocado(true)}
         onSubmit={(e) => {
           e.preventDefault();
           enviar();
@@ -222,15 +232,13 @@ export function FormularioMoto({
             <p className="text-sm uppercase tracking-wide text-slate-400">
               {editando ? 'Editar moto' : 'Nueva moto'}
             </p>
-            <h2 className="text-2xl font-bold">
-              {editando ? moto!.placa : 'Agregar a la flota'}
-            </h2>
+            <h2 className="text-2xl font-bold">{editando ? moto!.placa : 'Agregar a la flota'}</h2>
           </div>
           <button
             type="button"
             aria-label="Cerrar"
             className="h-12 w-12 shrink-0 rounded-full border border-borde text-2xl text-slate-400 active:scale-95"
-            onClick={alCerrar}
+            onClick={() => confirmarSalida(alCerrar)}
             disabled={enProceso}
           >
             ×
@@ -248,11 +256,7 @@ export function FormularioMoto({
             onClick={() => setPestana('TECNICA')}
             etiqueta="🛠️ Ficha tecnica"
           />
-          <Pestana
-            activa={pestana === 'GPS'}
-            onClick={() => setPestana('GPS')}
-            etiqueta="📡 GPS"
-          />
+          <Pestana activa={pestana === 'GPS'} onClick={() => setPestana('GPS')} etiqueta="📡 GPS" />
           <Pestana
             activa={pestana === 'FOTOS'}
             onClick={() => setPestana('FOTOS')}
@@ -285,7 +289,12 @@ export function FormularioMoto({
                   <Texto valor={marca} alCambiar={setMarca} ejemplo="Honda" bloqueado={enProceso} />
                 </Campo>
                 <Campo etiqueta="Modelo">
-                  <Texto valor={modelo} alCambiar={setModelo} ejemplo="CB125" bloqueado={enProceso} />
+                  <Texto
+                    valor={modelo}
+                    alCambiar={setModelo}
+                    ejemplo="CB125"
+                    bloqueado={enProceso}
+                  />
                 </Campo>
               </div>
 
@@ -419,7 +428,11 @@ export function FormularioMoto({
                   />
                 </Campo>
                 <Campo etiqueta="Freno trasero">
-                  <Eleccion valor={frenoTrasero} alCambiar={setFrenoTrasero} bloqueado={enProceso} />
+                  <Eleccion
+                    valor={frenoTrasero}
+                    alCambiar={setFrenoTrasero}
+                    bloqueado={enProceso}
+                  />
                 </Campo>
               </div>
 
@@ -474,7 +487,7 @@ export function FormularioMoto({
           <button
             type="button"
             className="boton-tactil border border-borde bg-panelClaro text-slate-300"
-            onClick={alCerrar}
+            onClick={() => confirmarSalida(alCerrar)}
             disabled={enProceso}
           >
             Cancelar

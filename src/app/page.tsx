@@ -10,6 +10,7 @@
 import { redirect } from 'next/navigation';
 
 import { BarraSuperior } from '@/components/BarraSuperior';
+import { Cabecera } from '@/components/Cabecera';
 import { GrillaChoferes } from '@/components/GrillaChoferes';
 import { diaOperativoDe } from '@/lib/fechas';
 import { efectivoTeoricoEnCaja, resumenChoferesEnTurno } from '@/server/services/caja';
@@ -45,10 +46,10 @@ export default async function Dashboard() {
 
   return (
     <main className="mx-auto max-w-[1600px] p-5">
+      <Cabecera migas={[{ etiqueta: 'Inicio' }]} usuario={cajero} />
       <BarraSuperior
         efectivoEnCaja={caja.total}
         diaOperativo={diaOperativo}
-        cajero={cajero.nombre}
         rol={cajero.rol}
         choferesConTurno={enTurno.length}
         horasSinRespaldo={horasSinRespaldo}

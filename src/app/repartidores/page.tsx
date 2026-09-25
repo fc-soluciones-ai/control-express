@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Cabecera } from '@/components/Cabecera';
 import { PanelChoferes } from '@/components/PanelChoferes';
 import { listarChoferesConHistoria } from '@/server/services/choferes';
 import { tienePermiso } from '@/server/permisos';
@@ -16,12 +17,16 @@ export default async function Choferes() {
   const cajero = await cajeroDeSesion();
   if (!cajero) redirect('/entrar');
   // Sin el rol, la pantalla no se abre: esconder el boton no basta.
-  if (!tienePermiso(cajero.rol, 'REPARTIDORES')) redirect('/');
+  if (!tienePermiso(cajero.rol, 'REPARTIDORES')) redirect('/sin-permiso');
 
   const choferes = await listarChoferesConHistoria();
 
   return (
     <main className="mx-auto max-w-4xl p-5">
+      <Cabecera
+        migas={[{ etiqueta: 'Inicio', href: '/' }, { etiqueta: 'Repartidores' }]}
+        usuario={cajero}
+      />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Gestion de repartidores</h1>
@@ -30,12 +35,6 @@ export default async function Choferes() {
             {choferes.length === 1 ? '' : 's'}
           </p>
         </div>
-        <Link
-          href="/"
-          className="boton-tactil shrink-0 border border-borde bg-panelClaro px-6 text-slate-200"
-        >
-          Volver
-        </Link>
       </div>
 
       <PanelChoferes choferes={choferes} esAdministrador={cajero.rol === 'ADMIN'} />

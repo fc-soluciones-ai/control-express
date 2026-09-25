@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Cabecera } from '@/components/Cabecera';
 import { PanelHistorial } from '@/components/PanelHistorial';
 import { diaOperativoDe, rangoDiaOperativo } from '@/lib/fechas';
 import {
@@ -91,17 +92,15 @@ export default async function Historial({ searchParams }: { searchParams: Parame
 
   return (
     <main className="mx-auto max-w-7xl p-5">
+      <Cabecera
+        migas={[{ etiqueta: 'Inicio', href: '/' }, { etiqueta: 'Historial' }]}
+        usuario={cajero}
+      />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Historial y reporteria</h1>
           <p className="text-slate-400">Bitacora inalterable de todo movimiento de dinero</p>
         </div>
-        <Link
-          href="/"
-          className="boton-tactil shrink-0 border border-borde bg-panelClaro px-6 text-slate-200 print:hidden"
-        >
-          Volver
-        </Link>
       </div>
 
       <PanelHistorial

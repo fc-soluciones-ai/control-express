@@ -22,10 +22,7 @@ export default async function Entrar() {
   if (await cajeroDeSesion()) redirect('/');
   if (await repartidorDeSesion()) redirect('/mi');
 
-  const [cajeros, repartidores] = await Promise.all([
-    cajerosActivos(),
-    repartidoresConAcceso(),
-  ]);
+  const [cajeros, repartidores] = await Promise.all([cajerosActivos(), repartidoresConAcceso()]);
 
   return (
     <main className="flex min-h-screen items-center justify-center p-5">
@@ -46,8 +43,8 @@ export default async function Entrar() {
             <p className="text-5xl">🔑</p>
             <h2 className="mt-4 text-xl font-bold">No hay usuarios registrados</h2>
             <p className="mt-2 text-slate-400">
-              Ejecute <code className="rounded bg-fondo px-2 py-1">npm run db:seed</code> para
-              crear el usuario administrador inicial.
+              Ejecute <code className="rounded bg-fondo px-2 py-1">npm run db:seed</code> para crear
+              el usuario administrador inicial.
             </p>
           </div>
         ) : (

@@ -27,7 +27,12 @@ interface Props {
   vacio?: string;
 }
 
-export function TecladoPin({ valor, alCambiar, bloqueado = false, vacio = 'Teclee el PIN' }: Props) {
+export function TecladoPin({
+  valor,
+  alCambiar,
+  bloqueado = false,
+  vacio = 'Teclee el PIN',
+}: Props) {
   const [ver, setVer] = useState(false);
 
   const etiqueta = (tecla: (typeof TECLAS)[number]) => {
