@@ -32,6 +32,8 @@ Desktop.ini
 
 # Compilacion del servidor de demostracion
 .next-demo/
+# Cualquier carpeta de compilacion con nombre propio (ver CARPETA_BUILD).
+.next-*/
 
 # Lista de la flota real: datos del negocio, no del programa
 motos.txt
