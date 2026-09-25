@@ -44,6 +44,7 @@ const ACCESOS: Array<{ href: string; etiqueta: string; permiso: Permiso }> = [
   { href: '/importar', etiqueta: '📁 Importar Excel', permiso: 'IMPORTAR' },
   { href: '/cierre', etiqueta: '📋 Cierre multiple', permiso: 'CAJA' },
   { href: '/historial', etiqueta: '📜 Historial', permiso: 'CAJA' },
+  { href: '/reportes', etiqueta: '📊 Reportes', permiso: 'CAJA' },
   { href: '/repartidores', etiqueta: '👥 Repartidores', permiso: 'REPARTIDORES' },
   { href: '/motos', etiqueta: '🏍️ Motos', permiso: 'FLOTA' },
   { href: '/configuracion', etiqueta: '⚙️ Configuracion', permiso: 'USUARIOS' },
@@ -97,7 +98,7 @@ export function BarraSuperior({
         </p>
       ) : null}
 
-      <nav className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <nav className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {ACCESOS.filter((acceso) => tienePermiso(rol, acceso.permiso)).map((acceso) => (
           <Link
             key={acceso.href}

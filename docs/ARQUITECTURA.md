@@ -815,3 +815,59 @@ puede frenarlo, con su propio diálogo) y cerrar el formulario desde la pantalla
 que se pregunta en el idioma del negocio. Se aplica a la ficha de moto y a la
 del repartidor, que son las largas: veinte campos y una foto, con la equis a un
 centímetro del último campo.
+
+---
+
+## 18. Listas: buscar, filtrar, paginar y exportar
+
+Ninguna lista tenía buscador. Con seis repartidores no se notaba; con la flota
+real y los gastos creciendo cada día, sí.
+
+Tres piezas, una sola vez cada una:
+
+| Componente | Qué hace |
+|---|---|
+| `BarraDeTabla` | Buscador con 400 ms de espera, botón de filtros y **chips** de lo que está puesto |
+| `FiltroEnlace` | Un filtro de pocas opciones, como botones en vez de lista desplegable |
+| `Paginacion` | Total, selector de 10/25/50 y paso de página |
+
+Todo vive en la dirección (`lib/consulta.ts`), así que una búsqueda útil se
+recarga, se comparte como enlace y el botón Atrás del navegador deshace el
+último filtro en vez de sacar de la pantalla. Cambiar un filtro vuelve a la
+página 1: quedarse en la cuatro con un filtro nuevo muestra una tabla vacía que
+parece un error.
+
+**Los chips no son decoración.** Un filtro que no se ve es la causa más común
+de "me falta un movimiento": alguien dejó puesto un rango de fechas la semana
+pasada y hoy la lista miente sin decirlo.
+
+### Dónde se filtra
+
+- **Flota y repartidores**: en memoria. Son decenas de filas, no miles, y una
+  consulta por tecla no se justifica. La comparación ignora tildes y mayúsculas
+  (`paraBuscar`), porque nadie escribe "Fredón" con tilde con una mano ocupada.
+- **Gastos de flota**: contra la base, con `skip`/`take` y su propio conteo.
+  Esa lista crece para siempre; traer mil filas para mirar diez se siente en la
+  tableta.
+- **Historial de caja**: sigue con cursor ("ver más"), que es lo correcto para
+  una bitácora que se recorre hacia atrás y donde llegan filas nuevas mientras
+  se mira.
+
+### Exportación
+
+El reporte de flota exporta a **Excel** (dos hojas: por moto y detalle) y a
+**CSV**, y se guarda en PDF por el diálogo de impresión, igual que el historial.
+El CSV usa punto y coma y lleva BOM: con coma y sin BOM, el Excel en español
+mete todo en una columna y estropea las tildes.
+
+La exportación **lleva todo lo que cae en el filtro**, no solo la página a la
+vista. Descubrir que el archivo traía veinticinco filas de ciento treinta es de
+los errores que se notan tarde.
+
+### El centro `/reportes`
+
+Una sola puerta: se elige el rango una vez, se ven los indicadores del periodo
+(entró a la caja, efectivo esperado, diferencia neta, gasto de flota) y desde
+ahí se entra a cada reporte **con ese rango ya puesto**. No duplica los
+reportes, los enlaza: un tercer sitio donde consultar lo mismo sería un tercer
+sitio donde arreglar el mismo error de cálculo.

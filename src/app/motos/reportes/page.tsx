@@ -7,7 +7,12 @@ import { redirect } from 'next/navigation';
 
 import { Cabecera } from '@/components/Cabecera';
 import { PanelFlota } from '@/components/PanelFlota';
-import { historialDeFlota, resumenDeFlota } from '@/server/services/mantenimiento';
+import { paginaDe, tamanoDePagina } from '@/lib/consulta';
+import {
+  contarGastosDeFlota,
+  historialDeFlota,
+  resumenDeFlota,
+} from '@/server/services/mantenimiento';
 import { listarFlota } from '@/server/services/motos';
 import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
@@ -20,6 +25,9 @@ interface Parametros {
   desde?: string;
   hasta?: string;
   categoria?: string;
+  buscar?: string;
+  pagina?: string;
+  tamano?: string;
 }
 
 function inicioDelDia(texto: string): Date | undefined {
@@ -48,13 +56,22 @@ export default async function Reportes({ searchParams }: { searchParams: Paramet
     desde: searchParams.desde ? inicioDelDia(searchParams.desde) : undefined,
     hasta: searchParams.hasta ? finDelDia(searchParams.hasta) : undefined,
     categoria: (searchParams.categoria || undefined) as CategoriaMantenimiento | undefined,
+    busqueda: searchParams.buscar || undefined,
   };
 
-  const [resumen, historial, flota] = await Promise.all([
+  const tamano = tamanoDePagina(searchParams.tamano);
+  const pagina = paginaDe(searchParams.pagina);
+
+  const [resumen, total, flota] = await Promise.all([
     resumenDeFlota(filtros),
-    historialDeFlota(filtros, 200),
+    contarGastosDeFlota(filtros),
     listarFlota(),
   ]);
+  // Si un filtro deja menos paginas de las que decia la direccion, se muestra
+  // la ultima que existe en vez de una tabla vacia.
+  const paginas = Math.max(1, Math.ceil(total / tamano));
+  const actual = Math.min(pagina, paginas);
+  const historial = await historialDeFlota(filtros, tamano, (actual - 1) * tamano);
 
   const descripcion = [
     searchParams.placa ? `Moto ${searchParams.placa}` : 'Toda la flota',
@@ -86,6 +103,9 @@ export default async function Reportes({ searchParams }: { searchParams: Paramet
       <PanelFlota
         resumen={resumen}
         historial={historial}
+        total={total}
+        pagina={actual}
+        tamano={tamano}
         placas={flota.map((m) => m.placa)}
         filtros={{
           placa: searchParams.placa ?? '',

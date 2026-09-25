@@ -20,6 +20,8 @@ import {
 import { guardarDatosGps } from '@/server/services/gps';
 import {
   alertasDeFlota,
+  contarGastosDeFlota,
+  historialDeFlota,
   registrarMantenimiento,
   resumenDeFlota,
 } from '@/server/services/mantenimiento';
@@ -713,6 +715,61 @@ async function main(): Promise<void> {
   comprobar('la foto queda a su nombre', suFoto.foto.cajeroNombre, 'DAVID-R');
 
   // -------------------------------------------------------------------------
+  console.log('\n--- Buscar y paginar los gastos ---');
+
+  // Tres gastos con proveedores distintos, para buscar por texto.
+  const proveedores = [
+    ['Servicentro La Uruca', 500_000],
+    ['Taller Delta', 1_200_000],
+    ['Servicentro Turrucares', 700_000],
+  ] as const;
+  for (const [i, [proveedor, monto]] of proveedores.entries()) {
+    await registrarMantenimiento({
+      placa: 'MOT999',
+      tipo: 'PREVENTIVO',
+      categoria: 'GASOLINA',
+      costoTotal: monto,
+      // El odometro solo avanza: cada gasto va cien kilometros despues.
+      kilometrajeEvento: 6_000 + i * 100,
+      tallerOProveedor: proveedor,
+      cajeroId: cajero.id,
+    });
+  }
+
+  const soloDeLaMoto = { placa: 'MOT999' };
+  comprobar('cuenta los gastos del filtro', await contarGastosDeFlota(soloDeLaMoto), 3);
+  comprobar(
+    'el texto busca en el proveedor',
+    (await historialDeFlota({ ...soloDeLaMoto, busqueda: 'servicentro' })).length,
+    2,
+  );
+  comprobar(
+    'sin importar mayusculas',
+    (await historialDeFlota({ ...soloDeLaMoto, busqueda: 'TALLER DELTA' })).length,
+    1,
+  );
+  comprobar(
+    'y el conteo respeta la busqueda',
+    await contarGastosDeFlota({ ...soloDeLaMoto, busqueda: 'servicentro' }),
+    2,
+  );
+  comprobar(
+    'lo que no existe no devuelve nada',
+    await contarGastosDeFlota({ ...soloDeLaMoto, busqueda: 'gasolinera del sol' }),
+    0,
+  );
+
+  const primeraPagina = await historialDeFlota(soloDeLaMoto, 2, 0);
+  const segundaPagina = await historialDeFlota(soloDeLaMoto, 2, 2);
+  comprobar('la primera pagina trae dos', primeraPagina.length, 2);
+  comprobar('la segunda trae el que falta', segundaPagina.length, 1);
+  comprobar(
+    'y no repite ninguno',
+    new Set([...primeraPagina, ...segundaPagina].map((l) => l.id)).size,
+    3,
+  );
+
+  // -------------------------------------------------------------------------
   console.log('\n--- Auditoria ---');
   const eventos = await prisma.eventoAuditoria.groupBy({ by: ['tipo'], _count: true });
   const porTipo = Object.fromEntries(eventos.map((e) => [e.tipo, e._count]));
@@ -721,7 +778,7 @@ async function main(): Promise<void> {
   // Cinco gastos, no seis: el envio repetido por idempotencia no crea otro
   // registro y por tanto tampoco otro evento. El rechazado por odometro hacia
   // atras tampoco deja rastro, porque nunca llego a escribirse.
-  comprobar('los gastos, sin contar el repetido', porTipo['MANTENIMIENTO'], 7);
+  comprobar('los gastos, sin contar el repetido', porTipo['MANTENIMIENTO'], 10);
   comprobar('y las asignaciones', (porTipo['MOTO_ASIGNADA'] ?? 0) > 0, true);
 
   const historial = await prisma.asignacionMoto.count();

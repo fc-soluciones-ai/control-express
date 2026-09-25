@@ -12,6 +12,10 @@ import * as XLSX from 'xlsx';
 import { deCentimos, esClaveDeDinero } from '@/lib/money/money';
 import { formatearFechaHora } from '@/lib/fechas';
 import type { FilaHistorial, MetricasHistorial } from '@/server/services/historial';
+import type {
+  LineaHistorial as LineaFlota,
+  ResumenPorMoto as ResumenMoto,
+} from '@/server/services/mantenimiento';
 
 /** Formato de celda para colones sin decimales. */
 const FORMATO_MONEDA = '#,##0';
@@ -138,5 +142,131 @@ export function exportarHistorialAExcel(parametros: ParametrosExportacion): {
   return {
     nombreArchivo: `historial-caja-${marca}.xlsx`,
     base64: buffer.toString('base64'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gastos de flota
+// ---------------------------------------------------------------------------
+
+const NOMBRE_CATEGORIA: Record<string, string> = {
+  GASOLINA: 'Gasolina',
+  CAMBIO_ACEITE: 'Cambio de aceite',
+  LLANTAS: 'Llantas',
+  FRENOS: 'Frenos',
+  REPUESTOS: 'Repuestos',
+  RTV: 'Revision tecnica',
+  SEGURO: 'Seguro',
+  OTRO: 'Otro',
+};
+
+const ENCABEZADOS_GASTOS = [
+  'Fecha y hora',
+  'Moto',
+  'Categoria',
+  'Tipo',
+  'Proveedor',
+  'Odometro (km)',
+  'Costo',
+  'Descripcion',
+  'Registrado por',
+];
+
+function filasDeGastos(lineas: readonly LineaFlota[]): unknown[][] {
+  return lineas.map((l) => [
+    formatearFechaHora(new Date(l.timestamp)),
+    l.placa,
+    NOMBRE_CATEGORIA[l.categoria] ?? l.categoria,
+    l.tipo,
+    l.tallerOProveedor ?? '',
+    l.kilometrajeEvento,
+    deCentimos(l.costoTotal),
+    l.descripcion ?? '',
+    l.cajeroNombre,
+  ]);
+}
+
+export interface ParametrosGastos {
+  lineas: readonly LineaFlota[];
+  resumen: readonly ResumenMoto[];
+  descripcionFiltro: string;
+}
+
+/** El mismo reporte de flota que se ve en pantalla, en un libro de Excel. */
+export function exportarGastosAExcel(parametros: ParametrosGastos): {
+  nombreArchivo: string;
+  base64: string;
+} {
+  const libro = XLSX.utils.book_new();
+
+  const porMoto: unknown[][] = [
+    ['Control Express - Gastos de flota'],
+    ['Filtro aplicado', parametros.descripcionFiltro],
+    ['Generado', formatearFechaHora(new Date())],
+    [],
+    ['Moto', 'Gastos', 'Costo total', 'Km recorridos', 'Costo por km'],
+    ...parametros.resumen.map((m) => [
+      m.placa,
+      m.cantidadRegistros,
+      deCentimos(m.gastoTotal),
+      m.kmRecorridos,
+      m.kmRecorridos > 0 ? deCentimos(Math.round(m.gastoTotal / m.kmRecorridos)) : '',
+    ]),
+  ];
+  const hojaMotos = XLSX.utils.aoa_to_sheet(porMoto);
+  hojaMotos['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(libro, hojaMotos, 'Por moto');
+
+  const hojaGastos = XLSX.utils.aoa_to_sheet([
+    ENCABEZADOS_GASTOS,
+    ...filasDeGastos(parametros.lineas),
+  ]);
+  hojaGastos['!cols'] = [
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 26 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 40 },
+    { wch: 18 },
+  ];
+  for (let fila = 1; fila <= parametros.lineas.length; fila += 1) {
+    const celda = hojaGastos[XLSX.utils.encode_cell({ r: fila, c: 6 })];
+    if (celda && typeof celda.v === 'number') celda.z = FORMATO_MONEDA;
+  }
+  XLSX.utils.book_append_sheet(libro, hojaGastos, 'Gastos');
+
+  const buffer = XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  return {
+    nombreArchivo: `gastos-flota-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    base64: buffer.toString('base64'),
+  };
+}
+
+/**
+ * El mismo detalle en CSV, para quien lo va a cargar en otro sistema.
+ *
+ * Separador de punto y coma y BOM al inicio: Excel en espanol abre asi el
+ * archivo con las columnas separadas y las tildes derechas. Con coma y sin
+ * BOM, todo cae en una sola columna y "Revision tecnica" sale con simbolos.
+ */
+export function exportarGastosACsv(parametros: ParametrosGastos): {
+  nombreArchivo: string;
+  base64: string;
+} {
+  const escapar = (valor: unknown): string => {
+    const texto = valor === null || valor === undefined ? '' : String(valor);
+    return /[";\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+  };
+
+  const lineas = [ENCABEZADOS_GASTOS, ...filasDeGastos(parametros.lineas)]
+    .map((fila) => fila.map(escapar).join(';'))
+    .join('\r\n');
+
+  return {
+    nombreArchivo: `gastos-flota-${new Date().toISOString().slice(0, 10)}.csv`,
+    base64: Buffer.from(`\ufeff${lineas}`, 'utf8').toString('base64'),
   };
 }

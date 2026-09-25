@@ -346,6 +346,8 @@ export interface FiltrosFlota {
   desde?: Date;
   hasta?: Date;
   categoria?: CategoriaMantenimiento;
+  /** Texto libre: busca en el proveedor y en la descripcion del gasto. */
+  busqueda?: string;
 }
 
 export interface ResumenPorMoto {
@@ -446,28 +448,57 @@ export interface LineaHistorial {
   cajeroNombre: string;
 }
 
-/** Historial de gastos, para la tabla de reporteria. */
+/** Traduce los filtros de pantalla a la condicion de la consulta. */
+function condicionDeFlota(filtros: FiltrosFlota) {
+  const placa = filtros.placa ? normalizarPlaca(filtros.placa) : undefined;
+  const texto = filtros.busqueda?.trim();
+
+  return {
+    ...(placa ? { placa } : {}),
+    ...(filtros.categoria ? { categoria: filtros.categoria } : {}),
+    ...(filtros.desde || filtros.hasta
+      ? {
+          timestamp: {
+            ...(filtros.desde ? { gte: filtros.desde } : {}),
+            ...(filtros.hasta ? { lt: filtros.hasta } : {}),
+          },
+        }
+      : {}),
+    // El texto busca donde quien pregunta lo escribiria: el nombre de la
+    // bomba o del taller, y la nota del gasto. La placa ya tiene su filtro.
+    ...(texto
+      ? {
+          OR: [
+            { tallerOProveedor: { contains: texto, mode: 'insensitive' as const } },
+            { descripcion: { contains: texto, mode: 'insensitive' as const } },
+            { numeroFactura: { contains: texto, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+  };
+}
+
+/** Cuantos gastos caen en el filtro, para el pie de la tabla. */
+export async function contarGastosDeFlota(filtros: FiltrosFlota = {}): Promise<number> {
+  return prisma.registroMantenimiento.count({ where: condicionDeFlota(filtros) });
+}
+
+/**
+ * Historial de gastos, para la tabla de reporteria.
+ *
+ * Pagina de verdad contra la base y no en el navegador: la lista crece para
+ * siempre y traer mil filas para mirar diez se siente en la tableta.
+ */
 export async function historialDeFlota(
   filtros: FiltrosFlota = {},
   limite = 200,
+  saltar = 0,
 ): Promise<LineaHistorial[]> {
-  const placa = filtros.placa ? normalizarPlaca(filtros.placa) : undefined;
-
   const registros = await prisma.registroMantenimiento.findMany({
-    where: {
-      ...(placa ? { placa } : {}),
-      ...(filtros.categoria ? { categoria: filtros.categoria } : {}),
-      ...(filtros.desde || filtros.hasta
-        ? {
-            timestamp: {
-              ...(filtros.desde ? { gte: filtros.desde } : {}),
-              ...(filtros.hasta ? { lt: filtros.hasta } : {}),
-            },
-          }
-        : {}),
-    },
+    where: condicionDeFlota(filtros),
     orderBy: { timestamp: 'desc' },
     take: Math.min(limite, 500),
+    skip: Math.max(0, saltar),
     include: {
       cajero: { select: { nombre: true } },
       chofer: { select: { nombre: true } },
