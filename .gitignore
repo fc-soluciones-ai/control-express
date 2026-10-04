@@ -46,3 +46,8 @@ __pycache__/
 
 # Informe del POS: puede traer nombres de tablas del cliente.
 scripts/sql/salida-*.txt
+
+# El agente del POS guarda su secreto, su marca y su registro al lado del script.
+scripts/agente-pos/agente-pos.config.json
+scripts/agente-pos/agente-pos.marca.txt
+scripts/agente-pos/agente-pos.registro.txt

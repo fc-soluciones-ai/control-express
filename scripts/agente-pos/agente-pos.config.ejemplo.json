@@ -1,0 +1,5 @@
+{
+  "url": "https://control-express.vercel.app/api/pos/pedidos",
+  "secreto": "PEGUE-AQUI-EL-SECRETO",
+  "diasAlArrancar": 7
+}

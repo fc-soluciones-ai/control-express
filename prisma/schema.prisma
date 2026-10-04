@@ -144,6 +144,7 @@ model Chofer {
   gastos       RegistroMantenimiento[]
   evidencias   Evidencia[]
   lecturas     LecturaFoto[]
+  pedidos      Pedido[]
   ubicaciones  UbicacionCliente[]
 
   @@index([nombreNormalizado])
@@ -798,6 +799,7 @@ model Cliente {
   telefonos   TelefonoCliente[]
   solicitudes SolicitudUbicacion[]
   mensajes    MensajeUbicacion[]
+  pedidos     Pedido[]
   ubicaciones UbicacionCliente[]
 
   @@index([estado])
@@ -1002,4 +1004,89 @@ model MensajeUbicacion {
   @@index([estado, recibidoEn])
   @@index([telefono])
   @@map("mensajes_ubicacion")
+}
+
+/// Un pedido del POS, copiado aqui para poder seguirlo.
+///
+/// ES UNA COPIA, NO LA VERDAD
+///
+/// El pedido nace y muere en Soft Restaurant; esta tabla es un reflejo que
+/// mantiene al dia el agente que corre en el servidor del local. Nada de lo
+/// que se escriba aqui vuelve al POS por su cuenta. Si las dos difieren, manda
+/// el POS.
+///
+/// POR QUE SE COPIA Y NO SE CONSULTA EN VIVO
+///
+/// Porque el POS esta en el local y esta aplicacion en la nube, sin VPN entre
+/// medio. Y porque si se cae el internet del local, el repartidor que ya salio
+/// tiene que seguir viendo su ruta.
+model Pedido {
+  id String @id @default(cuid())
+
+  /// Como lo llama el POS: la serie y el folio juntos. Es lo que evita
+  /// procesar dos veces el mismo pedido cuando el agente reintenta.
+  claveDelPos String @unique @map("clave_del_pos")
+
+  /// El folio solo, para buscarlo como lo canta la caja.
+  folio      String
+  serieFolio String? @map("serie_folio")
+
+  // --- A quien va ------------------------------------------------------------
+
+  /// idclientedomicilio del POS. Es la misma clave que usa Cliente.
+  claveCliente  String? @map("clave_cliente")
+  /// Cual de las direcciones del cliente. Del POS, no se usa para repartir.
+  idDireccion   String? @map("id_direccion")
+  /// Con que numero pidio. Puede no ser el de su ficha.
+  telefonoUsado String? @map("telefono_usado")
+
+  /// La ficha nuestra, cuando la clave calzo. Null si el pedido entro con un
+  /// cliente que todavia no esta cargado aqui.
+  clienteId String? @map("cliente_id")
+
+  // --- Quien lo lleva --------------------------------------------------------
+
+  /// idmesero del POS: en este negocio el repartidor es un mesero del catalogo.
+  idMesero String? @map("id_mesero")
+  /// El repartidor nuestro, cuando el codigo calzo.
+  choferId String? @map("chofer_id")
+
+  // --- La linea de tiempo, tal como la trae el POS ---------------------------
+  //
+  // Cada una puede venir vacia. Hoy empaquetado y asignacion vienen vacias
+  // siempre porque nadie usa esas marcas; se guardan igual, para el dia que
+  // se empiecen a usar.
+
+  entroEn       DateTime  @map("entro_en")
+  empaquetadoEn DateTime? @map("empaquetado_en")
+  asignadoEn    DateTime? @map("asignado_en")
+  salioEn       DateTime? @map("salio_en")
+  llegoEn       DateTime? @map("llego_en")
+  cerradoEn     DateTime? @map("cerrado_en")
+
+  // --- Lo demas --------------------------------------------------------------
+
+  esADomicilio Boolean @default(false) @map("es_a_domicilio")
+  cancelado    Boolean @default(false)
+
+  /// Centimos enteros, como todo el dinero de este sistema. Lo que el
+  /// repartidor tiene que cobrar.
+  total Int @default(0)
+
+  /// RECIBIDO | EN_COCINA | ASIGNADO | EN_CAMINO | ENTREGADO | CANCELADO
+  /// Se deriva de las marcas de arriba al recibirlo. Es lo que ve el cliente.
+  estado String
+
+  /// Cuando el agente lo mando por ultima vez.
+  sincronizadoEn DateTime @default(now()) @map("sincronizado_en")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  cliente Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  chofer  Chofer?  @relation(fields: [choferId], references: [id], onDelete: SetNull)
+
+  @@index([estado, entroEn])
+  @@index([clienteId, entroEn])
+  @@index([choferId, entroEn])
+  @@map("pedidos")
 }
