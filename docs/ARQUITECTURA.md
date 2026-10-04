@@ -871,3 +871,160 @@ Una sola puerta: se elige el rango una vez, se ven los indicadores del periodo
 ahí se entra a cada reporte **con ese rango ya puesto**. No duplica los
 reportes, los enlaza: un tercer sitio donde consultar lo mismo sería un tercer
 sitio donde arreglar el mismo error de cálculo.
+
+## 19. La aplicación madre y sus módulos
+
+Esto empezó siendo el cierre de caja de la pizzería. Después entraron la flota
+de motos y los repartidores, y ahora entra la base de clientes, que no tiene
+nada que ver con el turno de la noche. Doce botones en una fila ya no decían
+nada: el de importar el Excel de ventas y el de pedirle la ubicación a diez mil
+clientes no son el mismo trabajo ni los hace la misma persona.
+
+Por eso hay **módulos**, declarados en un solo archivo
+(`src/server/config/modulos.ts`), que leen la barra de pestañas, los accesos
+del tablero y el tablero mismo. Antes la lista de accesos vivía dentro del
+componente de la barra, y agregar una pantalla era acordarse de dos lugares.
+
+| Módulo | Qué es | Estado |
+|---|---|---|
+| **Express** | La operación de cada noche: caja, turnos, repartidores, flota | funcionando |
+| **Clientes** | Las fichas del POS limpias y la ubicación exacta de cada casa | funcionando |
+| **Entregas** | El pedido desde que entra hasta que llega | por hacer |
+
+### Por qué Clientes no habla con Express
+
+Son dos problemas de tamaños distintos. Express ya opera todas las noches y no
+se puede romper. Clientes arranca con diez mil fichas sucias que hay que
+limpiar durante semanas. Unirlos hoy significaría que un error en la limpieza
+de direcciones apaga la caja.
+
+Se unen en el tercer módulo, **Entregas**: ahí el pedido de un cliente con
+ubicación buena se le asigna a un repartidor con moto. Ese es el único punto
+donde los dos mundos se tocan, y por eso es su propio módulo y no un agregado
+de ninguno de los dos.
+
+---
+
+## 20. Clientes y sus ubicaciones
+
+### El problema
+
+En Costa Rica no hay número de casa. La dirección de un cliente en el POS es
+una cadena de referencias escrita por quien contestó el teléfono, y en la base
+real la mitad no sirve para salir a repartir: 1.342 están vacías y 1.744 dicen
+cosas como «ALAJUELA». El repartidor sale y llama.
+
+Lo que se sacó de los dos archivos del POS (9.839 clientes):
+
+| | |
+|---|---|
+| Con teléfono válido de 8 dígitos | 6.689 |
+| En el formato viejo de 7 dígitos, de antes de marzo de 2008 | 1.252 |
+| Sin ningún teléfono | 1.930 |
+| Celular (6, 7, 8) — lo único que recibe WhatsApp | 5.522 |
+| Solo fijo (2, 4) | 1.167 |
+| **Listos: nombre, celular propio y dirección usable** | **3.535** |
+
+### Tres reglas que gobiernan estas tablas
+
+**El texto original no se toca.** `direccionTexto` es lo que escribió el cajero,
+con sus abreviaturas y sus dedazos. Lo que se corrige vive al lado, nunca
+encima: el día que una corrección resulte mala hay que poder volver a lo que el
+cliente dijo de verdad.
+
+**La ubicación es historial, no un campo.** Un cliente se muda, manda el punto
+desde el trabajo, o el GPS miente por cien metros. Cada punto es una fila nueva
+con quién lo mandó y cuándo; la que se usa para repartir es la última
+**aceptada**, no la última recibida.
+
+**Los repetidos se marcan, no se fusionan solos.** 337 teléfonos están
+repartidos entre varios clientes y 593 nombres se repiten. Unir dos fichas que
+parecían la misma persona no se deshace; marcarlas y que alguien decida, sí.
+
+### La clave del POS lleva ceros y son parte de la clave
+
+En la base real **`003863` y `3863` son dos clientes distintos**, y hay 1.484
+pares así. Ninguno comparte el nombre: son dos secuencias de numeración
+independientes conviviendo. Si alguna vez alguien normaliza la clave a número,
+fusiona 1.484 pares de gente que no tiene nada que ver. La prueba
+`verificar-ubicaciones.ts` lo vigila.
+
+### Los teléfonos de 7 dígitos
+
+Hasta marzo de 2008 los números de Costa Rica tenían siete dígitos. En la
+migración los fijos ganaron un `2` adelante y los celulares un `8`:
+`441-2345` pasó a `2441-2345`. En esta base quedaron 1.252 sin migrar, 1.100 de
+ellos fijos de Alajuela que empiezan con 4.
+
+Se reconstruyen, pero el cliente queda en `TELEFONO_POR_CONFIRMAR` y **no entra
+en ninguna tanda**: un número reconstruido puede ser el de otra casa, y el
+mensaje no se puede recoger. Lo mismo vale para los rescatados del texto de la
+dirección.
+
+### Cómo se le pide la ubicación a un cliente
+
+1. Se **arma una tanda** (`armarTanda`). Solo entran los clientes en estado
+   `LISTO`. Se crea una solicitud por cliente con un token aleatorio de 22
+   caracteres y se baja un Excel con el mensaje y el enlace de WhatsApp de cada
+   uno.
+2. Una **persona** manda los mensajes desde WhatsApp y después marca la tanda
+   como enviada. El sistema no manda nada: ver abajo.
+3. El cliente abre el enlace, su teléfono le pide permiso, y manda el punto con
+   una nota escrita por él («portón verde, el perro ladra»). Esa nota es lo
+   mejor de todo el proyecto: la escribe quien vive ahí.
+4. El punto entra como **propuesta**. Alguien de la pizzería lo acepta o lo
+   rechaza.
+
+### Cuatro decisiones que parecen detalles
+
+**Nada se manda solo.** Mandar miles de mensajes no solicitados desde el número
+de la pizzería lo hace bloquear por Meta, y con el número bloqueado se pierden
+también los pedidos. El módulo arma la lista; quien aprieta enviar es una
+persona. La tanda está limitada a 500 y el servicio lo rechaza por encima.
+
+**La primera tanda va a los clientes de los que más seguros estamos**, no a los
+que más falta hacen. Suena al revés: lo urgente son los de dirección mala. Pero
+los primeros mensajes de una cuenta deciden si Meta la marca como spam, así que
+los de dirección pobre entran después, cuando el número ya tiene historia de
+conversaciones contestadas.
+
+**El token viaja en claro**, al contrario del de sesión. El de sesión se guarda
+hasheado porque abre la caja; este solo permite proponer una ubicación para un
+cliente, no muestra más que su nombre, y caduca a los 30 días. Guardarlo
+hasheado impediría reenviar el mismo enlace cuando el cliente dice que no le
+llegó, que es lo que pasa todos los días.
+
+**La pantalla del cliente no dibuja un mapa.** Un mapa ayudaría a confirmar,
+pero cargar sus imágenes manda la ubicación del cliente a un tercero antes de
+que haya aceptado compartirla con nosotros, que es lo contrario de lo que dice
+el permiso que está leyendo. Se muestra qué tan exacta quedó y un enlace que él
+abre si quiere.
+
+### Lo que se rechaza al recibir un punto
+
+| Caso | Por qué |
+|---|---|
+| Fuera de Costa Rica | una VPN o la antena pueden dar un punto en otro país |
+| Precisión peor que 100 m | en un barrio, 100 metros es cualquier cuadra |
+| Enlace vencido o ya rechazado | no se insiste después de un no |
+
+### El permiso del cliente
+
+`TEXTO_CONSENTIMIENTO` vive en una constante del servidor y se guarda en la
+solicitud **palabra por palabra**, con la fecha y la IP. Si el texto viniera
+del navegador, cualquiera podría mandar un permiso distinto del que leyó y el
+registro no probaría nada. Cambiar esa redacción es cambiar lo que se les
+prometió a los que ya respondieron.
+
+### Dónde está cada cosa
+
+| Qué | Dónde |
+|---|---|
+| Leer teléfonos, direcciones y estados del POS | `src/lib/clientes/normalizar.ts` |
+| El permiso que acepta el cliente | `src/lib/clientes/consentimiento.ts` |
+| Tandas, enlaces y puntos recibidos | `src/server/services/ubicaciones.ts` |
+| Consulta de la base de clientes | `src/server/services/clientes.ts` |
+| La pantalla que abre el cliente | `src/app/ubicacion/[token]/` |
+| La pantalla de la pizzería | `src/app/clientes/` |
+| Cargar los dos archivos del POS | `npm run clientes:importar` |
+| Comprobaciones | `npm run test:ubicaciones` |

@@ -14,7 +14,8 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 import { formatearMoneda } from '@/lib/money/money';
-import { tienePermiso, type Permiso } from '@/server/permisos';
+import { MODULOS } from '@/server/config/modulos';
+import { tienePermiso } from '@/server/permisos';
 
 interface Props {
   efectivoEnCaja: number;
@@ -34,21 +35,18 @@ interface Props {
 const HORAS_TOLERADAS_SIN_RESPALDO = 36;
 
 /**
- * Los accesos del tablero, cada uno con el permiso que hace falta.
+ * Los accesos del tablero son las pantallas del modulo Express.
+ *
+ * La lista no vive aqui: esta en server/config/modulos.ts, junto con las de
+ * los demas modulos. Cuando vivia dentro de este componente, agregar una
+ * pantalla era acordarse de este archivo y de la barra de pestanas por
+ * separado, y una de las dos siempre quedaba atras.
  *
  * Pintar un boton que va a rebotar es una promesa que la pantalla no cumple:
  * el cajero toca, espera, y recibe un mensaje de que no puede. Mejor no
  * mostrarlo. La pantalla de destino igual comprueba el rol por su cuenta.
  */
-const ACCESOS: Array<{ href: string; etiqueta: string; permiso: Permiso }> = [
-  { href: '/importar', etiqueta: '📁 Importar Excel', permiso: 'IMPORTAR' },
-  { href: '/cierre', etiqueta: '📋 Cierre multiple', permiso: 'CAJA' },
-  { href: '/historial', etiqueta: '📜 Historial', permiso: 'CAJA' },
-  { href: '/reportes', etiqueta: '📊 Reportes', permiso: 'CAJA' },
-  { href: '/repartidores', etiqueta: '👥 Repartidores', permiso: 'REPARTIDORES' },
-  { href: '/motos', etiqueta: '🏍️ Motos', permiso: 'FLOTA' },
-  { href: '/configuracion', etiqueta: '⚙️ Configuracion', permiso: 'USUARIOS' },
-];
+const ACCESOS = MODULOS.find((m) => m.clave === 'EXPRESS')?.pantallas ?? [];
 
 /** Cada cuanto se refresca la pantalla si nadie la toca. */
 const REFRESCO_MS = 45_000;

@@ -270,3 +270,87 @@ export function exportarGastosACsv(parametros: ParametrosGastos): {
     base64: Buffer.from(`\ufeff${lineas}`, 'utf8').toString('base64'),
   };
 }
+
+// -----------------------------------------------------------------------------
+// La lista de envio de una tanda de WhatsApp
+// -----------------------------------------------------------------------------
+
+/**
+ * La tanda en Excel, para que quien manda los mensajes trabaje de arriba a
+ * abajo sin volver a la pantalla.
+ *
+ * El telefono sale como TEXTO, no como numero: 88887777 puesto como numero se
+ * ve bien, pero un fijo como 24431234 pierde nada y 06... perderia el cero.
+ * Mas importante: Excel convierte en notacion cientifica cualquier cosa que
+ * parezca grande, y un telefono roto es un mensaje que no sale.
+ *
+ * La columna del enlace de WhatsApp va de ultima y es la que se usa: se hace
+ * clic y abre la conversacion con el texto escrito. El mensaje tambien va
+ * aparte, para quien prefiera copiarlo.
+ */
+export function exportarTandaAExcel(parametros: {
+  tanda: number;
+  lineas: ReadonlyArray<{
+    clave: string;
+    nombre: string;
+    telefono: string;
+    direccionActual: string;
+    enlace: string;
+    mensaje: string;
+    enlaceWhatsApp: string;
+  }>;
+}): { nombreArchivo: string; base64: string } {
+  const libro = XLSX.utils.book_new();
+
+  const instrucciones: unknown[][] = [
+    [`Control Express - Tanda ${parametros.tanda} de pedidos de ubicacion`],
+    ['Generado', formatearFechaHora(new Date())],
+    ['Mensajes en esta tanda', parametros.lineas.length],
+    [],
+    ['COMO SE MANDA'],
+    ['1', 'Abra WhatsApp en el telefono o en la computadora, con el numero de la pizzeria.'],
+    ['2', 'En la hoja "Mensajes", haga clic en el enlace de la ultima columna.'],
+    ['3', 'WhatsApp abre la conversacion con el texto ya escrito. Revise y mande.'],
+    ['4', 'Cuando termine la tanda, vuelva a la pantalla y marquela como enviada.'],
+    [],
+    ['LO QUE NO HAY QUE HACER'],
+    ['', 'No mandar mas de una tanda por dia: Meta bloquea el numero por mensajes masivos.'],
+    ['', 'No cambiar el texto para que parezca mas urgente. Un cliente molesto bloquea el numero.'],
+    ['', 'No insistirle a quien no contesto: la siguiente tanda ya lo vuelve a incluir si hace falta.'],
+  ];
+  const hojaInstrucciones = XLSX.utils.aoa_to_sheet(instrucciones);
+  hojaInstrucciones['!cols'] = [{ wch: 6 }, { wch: 92 }];
+  XLSX.utils.book_append_sheet(libro, hojaInstrucciones, 'Como se manda');
+
+  const mensajes = parametros.lineas.map((l, i) => ({
+    '#': i + 1,
+    Clave: l.clave,
+    Cliente: l.nombre,
+    Telefono: l.telefono,
+    'Direccion que tenemos': l.direccionActual,
+    Mensaje: l.mensaje,
+    'Abrir WhatsApp': l.enlaceWhatsApp,
+  }));
+  const hoja = XLSX.utils.json_to_sheet(mensajes);
+  hoja['!cols'] = [
+    { wch: 5 },
+    { wch: 12 },
+    { wch: 34 },
+    { wch: 12 },
+    { wch: 50 },
+    { wch: 60 },
+    { wch: 44 },
+  ];
+  if (mensajes.length > 0) hoja['!autofilter'] = { ref: hoja['!ref'] as string };
+  // El telefono como texto, para que Excel no lo redondee ni lo recorte.
+  for (let fila = 2; fila <= mensajes.length + 1; fila += 1) {
+    const celda = hoja[`D${fila}`];
+    if (celda) celda.t = 's';
+  }
+  XLSX.utils.book_append_sheet(libro, hoja, 'Mensajes');
+
+  return {
+    nombreArchivo: `tanda-${String(parametros.tanda).padStart(3, '0')}-ubicaciones.xlsx`,
+    base64: XLSX.write(libro, { type: 'base64', bookType: 'xlsx' }) as string,
+  };
+}

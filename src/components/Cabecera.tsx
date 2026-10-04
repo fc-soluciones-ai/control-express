@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { accionSalir } from '@/app/acciones';
+import { PestanasDeModulo } from '@/components/PestanasDeModulo';
 
 export interface Miga {
   etiqueta: string;
@@ -181,6 +182,9 @@ export function Cabecera({ migas, volverA, usuario, menu = 'CAJA' }: Props) {
           </div>
         ) : null}
       </div>
+
+      {/* El repartidor no ve pestanas: su aplicacion es una sola pantalla. */}
+      {usuario && menu === 'CAJA' ? <PestanasDeModulo rol={usuario.rol} /> : null}
     </header>
   );
 }

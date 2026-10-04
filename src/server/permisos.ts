@@ -32,6 +32,14 @@ export const PERMISOS = {
   BORRAR_EVIDENCIA: ['SUPERVISOR', 'ADMIN'],
   /** Usuarios de caja, sus roles y los PIN de todo el mundo. */
   USUARIOS: ['ADMIN'],
+  /**
+   * La base de clientes y los pedidos de ubicacion por WhatsApp.
+   *
+   * No es de los cajeros porque aqui se decide a que miles de telefonos se
+   * le escribe. Un mensaje de mas no se puede recoger, y una tanda mal
+   * armada hace que WhatsApp bloquee el numero de la pizzeria.
+   */
+  CLIENTES: ['SUPERVISOR', 'ADMIN'],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 export type Permiso = keyof typeof PERMISOS;
@@ -47,6 +55,7 @@ const COMO_SE_LLAMA: Record<Permiso, string> = {
   REPARTIDORES: 'los repartidores',
   BORRAR_EVIDENCIA: 'borrar evidencia',
   USUARIOS: 'los usuarios',
+  CLIENTES: 'los clientes y sus ubicaciones',
 };
 
 const QUIEN_SI: Record<Permiso, string> = {
@@ -56,6 +65,7 @@ const QUIEN_SI: Record<Permiso, string> = {
   REPARTIDORES: 'un supervisor o un administrador',
   BORRAR_EVIDENCIA: 'un supervisor o un administrador',
   USUARIOS: 'un administrador',
+  CLIENTES: 'un supervisor o un administrador',
 };
 
 /** Falla con un mensaje que dice a quien hay que pedirle que lo haga. */

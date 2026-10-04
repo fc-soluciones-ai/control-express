@@ -64,6 +64,7 @@ async function main(): Promise<void> {
   comprobar('el supervisor corrige y configura el dia', deRol('SUPERVISOR'), [
     'BORRAR_EVIDENCIA',
     'CAJA',
+    'CLIENTES',
     'FLOTA',
     'IMPORTAR',
     'REPARTIDORES',
@@ -71,11 +72,15 @@ async function main(): Promise<void> {
   comprobar('el administrador ademas lleva las llaves', deRol('ADMIN'), [
     'BORRAR_EVIDENCIA',
     'CAJA',
+    'CLIENTES',
     'FLOTA',
     'IMPORTAR',
     'REPARTIDORES',
     'USUARIOS',
   ]);
+  // El cajero no entra a Clientes a proposito: ahi se decide a que miles de
+  // telefonos se le escribe, y un mensaje mandado no se recoge.
+  comprobar('el cajero no toca la base de clientes', tienePermiso('CAJERO', 'CLIENTES'), false);
   comprobar('un rol inventado no puede nada', deRol('VISITA'), []);
 
   // -------------------------------------------------------------------------

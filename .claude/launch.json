@@ -4,8 +4,21 @@
     {
       "name": "caja",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "caja-pruebas",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:pruebas"
+      ],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

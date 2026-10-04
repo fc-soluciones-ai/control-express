@@ -144,6 +144,7 @@ model Chofer {
   gastos       RegistroMantenimiento[]
   evidencias   Evidencia[]
   lecturas     LecturaFoto[]
+  ubicaciones  UbicacionCliente[]
 
   @@index([nombreNormalizado])
   @@index([estado])
@@ -731,4 +732,220 @@ model LecturaFoto {
   @@index([choferId, creadaEn])
   @@index([huella])
   @@map("lecturas_foto")
+}
+
+// -----------------------------------------------------------------------------
+// Clientes y sus ubicaciones
+// -----------------------------------------------------------------------------
+//
+//  TRES REGLAS QUE GOBIERNAN ESTAS TABLAS
+//
+//  1. EL TEXTO ORIGINAL NO SE TOCA. direccionTexto es lo que escribio el
+//     cajero en el POS, con sus abreviaturas y sus dedazos. Lo que se corrige
+//     vive al lado, nunca encima: el dia que una correccion resulte mala hay
+//     que poder volver a lo que el cliente dijo de verdad.
+//
+//  2. LA UBICACION ES HISTORIAL, NO UN CAMPO. Un cliente se muda, manda el
+//     punto desde el trabajo, o el GPS del telefono miente por cien metros.
+//     Cada punto que entra es una fila nueva con quien lo mando y cuando; la
+//     que se usa para repartir es la ultima aceptada, no la ultima recibida.
+//
+//  3. LOS REPETIDOS SE MARCAN, NO SE FUSIONAN SOLOS. 337 telefonos estan
+//     repartidos entre varios clientes y 593 nombres se repiten. Unir dos
+//     fichas que parecian la misma persona no se deshace; marcarlas y que
+//     alguien decida, si.
+
+/// Un cliente de la pizzeria, tal como lo conoce el POS.
+model Cliente {
+  id String @id @default(cuid())
+
+  /// La clave del POS. LOS CEROS DE ADELANTE SON PARTE DE LA CLAVE: en la
+  /// base real 003863 y 3863 son dos clientes distintos, y hay 1.484 pares
+  /// asi. Normalizar a numero fusionaria gente que no tiene nada que ver.
+  clave String @unique
+
+  nombre         String
+  /// Sin acentos y en mayusculas, para buscar y para detectar repetidos.
+  nombreBuscable String @map("nombre_buscable")
+
+  /// El telefono bueno, de ocho digitos. Null si no se pudo rescatar ninguno.
+  telefono  String?
+  /// 6, 7 y 8 son celular; 2 y 4 son fijo. A un fijo no le llega WhatsApp.
+  esCelular Boolean @default(false) @map("es_celular")
+
+  /// La direccion como venia en el POS. No se edita nunca. Ver regla 1.
+  direccionTexto   String @map("direccion_texto")
+  /// VACIA | SOLO_LUGAR | POBRE | PASABLE | DETALLADA
+  calidadDireccion String @map("calidad_direccion")
+
+  correo String?
+
+  /// LISTO | SIN_TELEFONO | SOLO_FIJO | TELEFONO_POR_CONFIRMAR |
+  /// TELEFONO_COMPARTIDO | DIRECCION_POBRE | SIN_NOMBRE
+  /// Se calcula al importar y al corregir un dato. Es el orden de trabajo.
+  estado String
+
+  /// Otro cliente usa este mismo telefono.
+  telefonoCompartido Boolean @default(false) @map("telefono_compartido")
+  /// Otro cliente se llama igual.
+  nombreRepetido     Boolean @default(false) @map("nombre_repetido")
+
+  /// De que archivo salio y cuando, para poder rastrear un dato raro.
+  origenCarga String   @map("origen_carga")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  telefonos   TelefonoCliente[]
+  solicitudes SolicitudUbicacion[]
+  ubicaciones UbicacionCliente[]
+
+  @@index([estado])
+  @@index([telefono])
+  @@index([nombreBuscable])
+  @@map("clientes")
+}
+
+/// Cada numero que aparecia en las cinco columnas de telefono del POS.
+///
+/// En tabla aparte porque un cliente traia hasta cinco, y porque de cada uno
+/// importa COMO se obtuvo: un numero que estaba bien escrito no vale lo mismo
+/// que uno reconstruido con la regla del 2008 o rescatado del texto de la
+/// direccion. Mandarle un mensaje a un numero reconstruido puede caer en casa
+/// de un desconocido.
+model TelefonoCliente {
+  id        String @id @default(cuid())
+  clienteId String @map("cliente_id")
+
+  /// Ocho digitos, sin +506 ni guiones.
+  numero    String
+  esCelular Boolean @map("es_celular")
+
+  /// DIRECTO              venia bien escrito
+  /// FORMATO_VIEJO        tenia 7 digitos, de antes de marzo de 2008
+  /// EXTRAIDO_TEXTO       estaba dentro de un campo con mas cosas
+  /// ESCONDIDO_DIRECCION  alguien lo escribio en la direccion
+  /// CLAVE_DEL_POS        la clave del cliente era un telefono
+  origen String
+
+  /// El valor tal como estaba en el archivo, para poder desmentir la lectura.
+  comoVenia String @map("como_venia")
+  /// En que columna aparecia (telefono, telefono2...).
+  campo     String
+
+  /// Confirmado por una persona o por un mensaje que llego.
+  verificadoEn DateTime? @map("verificado_en")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  cliente     Cliente              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  solicitudes SolicitudUbicacion[]
+
+  @@unique([clienteId, numero])
+  @@index([numero])
+  @@map("telefonos_cliente")
+}
+
+/// Un pedido de ubicacion a un cliente por WhatsApp.
+///
+/// EL TOKEN VIAJA EN CLARO, A DIFERENCIA DE LAS SESIONES
+///
+/// El token de sesion se guarda hasheado porque abre la caja. Este abre una
+/// sola cosa: proponer una ubicacion para ESTE cliente. La propuesta no
+/// reemplaza nada por si sola (ver UbicacionCliente.estado), caduca, y la
+/// pantalla no muestra mas que el nombre del cliente. Guardarlo hasheado
+/// impediria reenviar el mismo enlace cuando el cliente dice que no le llego,
+/// que es lo que va a pasar todos los dias.
+model SolicitudUbicacion {
+  id String @id @default(cuid())
+
+  clienteId  String  @map("cliente_id")
+  telefonoId String? @map("telefono_id")
+
+  /// Lo que va en la direccion del enlace. Aleatorio, 22 caracteres.
+  token String @unique
+
+  /// A que numero se mando. Se copia aqui porque el telefono del cliente
+  /// puede cambiar despues y el historial tiene que decir a donde se escribio.
+  telefonoDestino String @map("telefono_destino")
+
+  /// PENDIENTE | ENVIADA | ABIERTA | RESPONDIDA | VENCIDA | RECHAZADA
+  estado String @default("PENDIENTE")
+
+  /// En que tanda salio, para no mandar miles de mensajes el mismo dia y que
+  /// WhatsApp bloquee el numero de la pizzeria.
+  tanda Int
+
+  creadaEn     DateTime  @default(now()) @map("creada_en")
+  enviadaEn    DateTime? @map("enviada_en")
+  /// Cuando el cliente abrio el enlace. Prueba que el numero existe.
+  abiertaEn    DateTime? @map("abierta_en")
+  respondidaEn DateTime? @map("respondida_en")
+  expiraEn     DateTime  @map("expira_en")
+
+  /// Si el cliente dijo expresamente que no quiere compartirla.
+  rechazadaEn DateTime? @map("rechazada_en")
+
+  /// El texto que acepto al compartir, palabra por palabra. Si manana alguien
+  /// pregunta con que permiso tenemos su ubicacion, la respuesta es esta fila.
+  textoAceptado String?   @map("texto_aceptado")
+  aceptadoEn    DateTime? @map("aceptado_en")
+  /// Desde que direccion de red se acepto.
+  ip            String?
+
+  cliente     Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  telefono    TelefonoCliente?   @relation(fields: [telefonoId], references: [id], onDelete: SetNull)
+  ubicaciones UbicacionCliente[]
+
+  @@index([clienteId, creadaEn])
+  @@index([estado])
+  @@index([tanda])
+  @@map("solicitudes_ubicacion")
+}
+
+/// Un punto en el mapa que alguien dijo que era la casa de un cliente.
+///
+/// LAS COORDENADAS SI PUEDEN SER Float
+///
+/// La regla de no usar Float es para dinero, donde el redondeo binario
+/// corrompe un arqueo. Una coordenada en doble precision tiene de sobra: el
+/// error es de milimetros, y el GPS de un telefono se equivoca por metros.
+model UbicacionCliente {
+  id String @id @default(cuid())
+
+  clienteId   String  @map("cliente_id")
+  solicitudId String? @map("solicitud_id")
+
+  latitud         Float
+  longitud        Float
+  /// Metros de error que reporto el telefono. Arriba de 100 no sirve para
+  /// encontrar una casa en un barrio.
+  precisionMetros Float? @map("precision_metros")
+
+  /// CLIENTE | REPARTIDOR | CAJA
+  origen   String
+  /// Si lo capturo un repartidor al entregar.
+  choferId String? @map("chofer_id")
+
+  /// Lo que el cliente escribio al mandar el punto ("porton verde, segundo
+  /// piso"). Es lo mejor de todo el proyecto: lo escribe quien vive ahi.
+  nota String?
+
+  /// PROPUESTA | ACEPTADA | RECHAZADA
+  /// Entra como propuesta. Nada reemplaza la direccion hasta que alguien de
+  /// la pizzeria la acepte, o hasta que un repartidor entregue ahi.
+  estado String @default("PROPUESTA")
+
+  revisadaEn  DateTime? @map("revisada_en")
+  revisadaPor String?   @map("revisada_por")
+
+  ip       String?
+  creadaEn DateTime @default(now()) @map("creada_en")
+
+  cliente   Cliente             @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  solicitud SolicitudUbicacion? @relation(fields: [solicitudId], references: [id], onDelete: SetNull)
+  chofer    Chofer?             @relation(fields: [choferId], references: [id], onDelete: SetNull)
+
+  @@index([clienteId, creadaEn])
+  @@index([estado])
+  @@map("ubicaciones_cliente")
 }
