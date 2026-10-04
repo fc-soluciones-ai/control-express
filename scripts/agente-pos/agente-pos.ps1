@@ -105,10 +105,18 @@ function ComoPedido($fila) {
     if ($null -eq $v -or $v -is [System.DBNull]) { return $null }
     return ([datetime]$v).ToString('o')
   }
+
+  # El POS tiene DOS columnas de cliente y usa una u otra segun como se tomo
+  # el pedido. En esta instalacion idclientedomicilio viene vacio y el cliente
+  # real esta en idcliente. Se toma la que tenga algo, empezando por la de
+  # domicilio, que es la mas especifica cuando existe.
+  $cliente = ([string]$fila['idclientedomicilio']).Trim()
+  if ($cliente -eq '') { $cliente = ([string]$fila['idcliente']).Trim() }
+
   return [ordered]@{
     folio         = [string]$fila['folio']
     serieFolio    = [string]$fila['seriefolio']
-    claveCliente  = [string]$fila['idclientedomicilio']
+    claveCliente  = $cliente
     idDireccion   = [string]$fila['iddireccion']
     telefonoUsado = [string]$fila['telefonousadodomicilio']
     idMesero      = [string]$fila['idmesero']
@@ -164,7 +172,7 @@ if ($Autoprueba) {
 
   # Una fila del POS, con las columnas tal como se llaman alla.
   $t = New-Object System.Data.DataTable
-  foreach ($c in @('folio','seriefolio','idclientedomicilio','iddireccion','telefonousadodomicilio','idmesero','cancelado','total')) {
+  foreach ($c in @('folio','seriefolio','idcliente','idclientedomicilio','iddireccion','telefonousadodomicilio','idmesero','cancelado','total')) {
     [void]$t.Columns.Add($c)
   }
   foreach ($c in @('fecha','empaquetado','asignacion','salidarepartidor','arriborepartidor','cierre')) {
@@ -181,6 +189,17 @@ if ($Autoprueba) {
   $p = ComoPedido $t.Rows[0]
   Comprobar 'el folio viaja como texto' $p.folio '12345'
   Comprobar 'la clave del cliente conserva sus ceros' $p.claveCliente '008686'
+
+  # En esta instalacion idclientedomicilio viene vacio y el cliente esta en
+  # idcliente. Sin esto, ningun pedido se puede ligar a su ficha.
+  $f3 = $t.NewRow()
+  $f3['folio'] = '555'; $f3['idclientedomicilio'] = ''; $f3['idcliente'] = '003863'
+  $f3['iddireccion'] = 'CASA'; $f3['cancelado'] = $false; $f3['total'] = '0'
+  $f3['fecha'] = [datetime]'2026-10-04T18:00:00'
+  $t.Rows.Add($f3)
+  $p3 = ComoPedido $t.Rows[$t.Rows.Count - 1]
+  Comprobar 'si no hay idclientedomicilio se usa idcliente' $p3.claveCliente '003863'
+  Comprobar 'y ese tambien conserva sus ceros' ($p3.claveCliente -eq '003863') 'True'
   Comprobar 'el total va con decimales' $p.total '12500.5'
   Comprobar 'un pedido con direccion es a domicilio' $p.esADomicilio 'True'
   Comprobar 'las marcas vacias van nulas' ($null -eq $p.empaquetadoEn) 'True'
@@ -190,7 +209,9 @@ if ($Autoprueba) {
   $f2['iddireccion'] = ''; $f2['cancelado'] = $true; $f2['total'] = '0'
   $f2['fecha'] = [datetime]'2026-10-04T20:00:00'
   $t.Rows.Add($f2)
-  $p2 = ComoPedido $t.Rows[1]
+  # Siempre la ultima: con un indice fijo, agregar una fila mas arriba rompe
+  # todas las comprobaciones de abajo sin que se note por que.
+  $p2 = ComoPedido $t.Rows[$t.Rows.Count - 1]
   Comprobar 'sin direccion no es a domicilio' $p2.esADomicilio 'False'
   Comprobar 'un cancelado llega marcado' $p2.cancelado 'True'
 
@@ -282,7 +303,7 @@ function UnaPasada {
     SELECT TOP 500
       folio, seriefolio, fecha, empaquetado, asignacion,
       salidarepartidor, arriborepartidor, cierre,
-      idclientedomicilio, iddireccion, telefonousadodomicilio,
+      idcliente, idclientedomicilio, iddireccion, telefonousadodomicilio,
       idmesero, cancelado, total
     FROM dbo.cheques
     WHERE fecha >= DATEADD(hour, -6, CONVERT(datetime, '$desde', 120))
@@ -307,6 +328,23 @@ function UnaPasada {
     $conLlegada = @($pedidos | Where-Object { $_.llegoEn }).Count
     $aDomicilio = @($pedidos | Where-Object { $_.esADomicilio }).Count
     Anotar "  a domicilio: $aDomicilio   con salida: $conSalida   con llegada: $conLlegada"
+
+    # De cual de las dos columnas sale el cliente. Sin esto no se puede ligar
+    # el pedido a su ficha, que es de lo que depende todo el proyecto.
+    $conDomicilio = @($filas.Rows | Where-Object { ([string]$_['idclientedomicilio']).Trim() -ne '' }).Count
+    $conCliente = @($filas.Rows | Where-Object { ([string]$_['idcliente']).Trim() -ne '' }).Count
+    $conAlguno = @($pedidos | Where-Object { $_.claveCliente -ne '' }).Count
+    Anotar "  con idclientedomicilio: $conDomicilio   con idcliente: $conCliente   con alguno: $conAlguno"
+
+    # Si muchas llegadas caen en el mismo instante, es que nadie las marca al
+    # entregar: alguien las cierra todas juntas al final del turno. En ese caso
+    # los minutos "en la calle" no miden nada.
+    $llegadas = @($pedidos | Where-Object { $_.llegoEn } | ForEach-Object { $_.llegoEn.Substring(0, 16) })
+    $distintas = @($llegadas | Sort-Object -Unique).Count
+    Anotar "  llegadas en $distintas minutos distintos, de $($llegadas.Count) pedidos"
+    if ($llegadas.Count -gt 0 -and $distintas -lt ($llegadas.Count / 2)) {
+      Anotar "  OJO: las llegadas se marcan en bloque, no al entregar."
+    }
     return $desde
   }
 
