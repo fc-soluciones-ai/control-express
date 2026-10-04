@@ -83,6 +83,21 @@ function Consultar($cadena, $sql) {
   compartido. La hora va dentro de la firma para que un envio grabado no se
   pueda repetir manana: el servidor rechaza lo que tenga mas de cinco minutos.
 #>
+<#
+  Los segundos desde 1970, en UTC.
+
+  NO se usa Get-Date -UFormat %s. En Windows PowerShell 5.1 ese formato cuenta
+  desde la hora LOCAL y no desde UTC: en Costa Rica devuelve seis horas menos.
+  Como la hora va firmada y el servidor rechaza lo que tenga mas de cinco
+  minutos de desfase, el agente recibia 401 en todos los envios.
+
+  DateTimeOffset::UtcNow no depende ni de la zona horaria ni del idioma del
+  Windows donde corra.
+#>
+function AhoraUnix {
+  return [string][long]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+}
+
 function Firmar($secreto, $hora, $cuerpo) {
   $hmac = New-Object System.Security.Cryptography.HMACSHA256
   $hmac.Key = [System.Text.Encoding]::UTF8.GetBytes($secreto)
@@ -163,6 +178,14 @@ if ($Autoprueba) {
   }
 
   # La firma tiene que dar lo mismo que calcula el servidor en Node.
+  # La hora va firmada y el servidor rechaza lo que tenga mas de cinco minutos
+  # de desfase. Con Get-Date -UFormat %s el agente mandaba seis horas menos y
+  # recibia 401 en todos los envios: eso no se puede volver a colar.
+  $hora = [long](AhoraUnix)
+  $real = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  Comprobar 'la hora es UTC y no la local' ([math]::Abs($hora - $real) -lt 5) 'True'
+  Comprobar 'y son diez digitos' ((AhoraUnix).Length) 10
+
   $firma = Firmar 'secreto' '1790000000' '{"pedidos":[]}'
   Comprobar 'la firma son 64 caracteres hex' $firma.Length 64
   Comprobar 'solo trae minusculas y digitos' ([bool]($firma -match '^[0-9a-f]+$')) 'True'
@@ -349,7 +372,7 @@ function UnaPasada {
   }
 
   $cuerpo = (@{ pedidos = $pedidos } | ConvertTo-Json -Depth 5 -Compress)
-  $hora = [string][int][double]::Parse((Get-Date -UFormat %s))
+  $hora = AhoraUnix
   $cabeceras = @{
     'x-agente-firma' = (Firmar $config.secreto $hora $cuerpo)
     'x-agente-hora'  = $hora
