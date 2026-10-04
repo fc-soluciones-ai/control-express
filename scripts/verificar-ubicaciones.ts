@@ -288,10 +288,39 @@ async function main(): Promise<void> {
     estado: 'LISTO',
   });
 
+  // Dos clientes LISTO mas, para comprobar a cual se le escribe primero.
+  await sembrarCliente({
+    clave: '000104',
+    nombre: 'ANA CON DIRECCION DETALLADA',
+    telefono: '87771111',
+    direccion: 'LA GARITA DESPUES DE APARTAMENTOS DE PIRAGUA 5 CASA A LA DERECHA CON PORTON',
+    estado: 'LISTO',
+  });
+  await sembrarCliente({
+    clave: '000105',
+    nombre: 'BEATRIZ CON DIRECCION JUSTA',
+    telefono: '87772222',
+    direccion: '300 MTS OESTE DEL CEMENTERIO',
+    estado: 'LISTO',
+  });
+
+  // La tanda va a los de direccion mas pobre primero: son los que mas trabajo
+  // le ahorran al repartidor cuando contestan. Ordenar por la columna NO
+  // sirve, porque "DETALLADA" va antes que "PASABLE" por la D, y entonces la
+  // primera tanda saldria justo hacia los que ya tienen la direccion buena.
+  const orden = await armarTanda(cajero.id, 2);
+  comprobar(
+    'primero los de direccion mas pobre',
+    orden.lineas.map((l) => l.clave).sort(),
+    ['000105', '3863'],
+  );
+  // Se deshace para que el resto de la prueba arranque sin solicitudes vivas.
+  await prisma.solicitudUbicacion.deleteMany();
+
   const primera = await armarTanda(cajero.id, 50);
   comprobar('la tanda es la numero 1', primera.tanda, 1);
-  // De los cinco clientes sembrados solo dos estan LISTO: GATA y MARIA.
-  comprobar('solo entran los que estan listos', primera.lineas.length, 2);
+  // De los siete clientes sembrados hay cuatro LISTO: GATA, MARIA, ANA y BEATRIZ.
+  comprobar('solo entran los que estan listos', primera.lineas.length, 4);
   comprobar(
     'no entro el del telefono fijo',
     primera.lineas.some((l) => l.telefono === '24432440'),
@@ -325,7 +354,7 @@ async function main(): Promise<void> {
   comprobar('una tanda de 5.000 tampoco', await mensaje(armarTanda(cajero.id, 5000)),
     'La tanda tiene que ser de 1 a 500 mensajes. Mas de 500 en un dia hace que WhatsApp bloquee el numero.');
 
-  comprobar('marcar la tanda como enviada', await marcarTandaEnviada(1, cajero.id), 2);
+  comprobar('marcar la tanda como enviada', await marcarTandaEnviada(1, cajero.id), 4);
 
   // ===========================================================================
   console.log('\n--- El enlace del cliente ---');
@@ -504,7 +533,7 @@ async function main(): Promise<void> {
   const porTipo = Object.fromEntries(eventos.map((e) => [e.tipo, e._count._all]));
   // Solo la tanda que de verdad armo mensajes: una tanda vacia no es un hecho
   // que valga la pena anotar.
-  comprobar('se anoto la tanda armada', porTipo.SOLICITUDES_GENERADAS, 1);
+  comprobar('se anotaron las dos tandas que armaron mensajes', porTipo.SOLICITUDES_GENERADAS, 2);
   comprobar('y la que se marco como enviada', porTipo.SOLICITUDES_MARCADAS_ENVIADAS, 1);
   comprobar('y el punto que llego', porTipo.UBICACION_RECIBIDA, 1);
   comprobar('y las dos que se aceptaron', porTipo.UBICACION_ACEPTADA, 2);

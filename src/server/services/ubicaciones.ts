@@ -34,11 +34,13 @@
 
 import { randomBytes } from 'node:crypto';
 
+import type { Prisma } from '@prisma/client';
+
 import { prisma } from '@/lib/db/prisma';
 import { primerNombre, telefonoInternacional } from '@/lib/clientes/normalizar';
 import { ErrorNegocio } from '@/server/errores';
 import { registrarEvento } from '@/server/services/auditoria';
-import type { EstadoSolicitud } from '@/types/enums';
+import type { CalidadDireccion, EstadoSolicitud } from '@/types/enums';
 
 /** Cuantos mensajes salen por tanda. Ver la decision 2 del encabezado. */
 export const TAMANO_DE_TANDA = 150;
@@ -154,28 +156,45 @@ export async function armarTanda(
   }
 
   const ahora = new Date();
-  const candidatos = await prisma.cliente.findMany({
-    where: {
-      estado: 'LISTO',
-      esCelular: true,
-      telefono: { not: null },
-      // Ni los que ya contestaron, ni los que dijeron que no.
-      ubicaciones: { none: {} },
-      solicitudes: {
-        none: {
-          OR: [
-            { estado: { in: ['PENDIENTE', 'RESPONDIDA', 'RECHAZADA'] } },
-            { estado: { in: ['ENVIADA', 'ABIERTA'] }, expiraEn: { gt: ahora } },
-          ],
-        },
+  const aQuienFalta = {
+    estado: 'LISTO',
+    esCelular: true,
+    telefono: { not: null },
+    // Ni los que ya contestaron, ni los que dijeron que no.
+    ubicaciones: { none: {} },
+    solicitudes: {
+      none: {
+        OR: [
+          { estado: { in: ['PENDIENTE', 'RESPONDIDA', 'RECHAZADA'] } },
+          { estado: { in: ['ENVIADA', 'ABIERTA'] }, expiraEn: { gt: ahora } },
+        ],
       },
     },
-    // Los de direccion mas pobre primero dentro de los LISTO: son los que mas
-    // trabajo le ahorran al repartidor.
-    orderBy: [{ calidadDireccion: 'asc' }, { clave: 'asc' }],
-    take: cuantas,
-    include: { telefonos: { where: { origen: { in: ['DIRECTO', 'CLAVE_DEL_POS'] } } } },
-  });
+  } satisfies Prisma.ClienteWhereInput;
+
+  /**
+   * Primero los de direccion mas pobre: son los que mas trabajo le ahorran al
+   * repartidor cuando contestan.
+   *
+   * Va en dos consultas y no en un orderBy porque ordenar por la columna
+   * ordena el TEXTO, y ahi "DETALLADA" va antes que "PASABLE" por la D. Eso
+   * mandaba la primera tanda justo a los clientes cuya direccion ya servia.
+   * Dos consultas explicitas dicen lo que se quiere y no dependen de como se
+   * llamen los valores manana.
+   */
+  const porCalidad = (calidad: CalidadDireccion, cuantos: number) =>
+    cuantos <= 0
+      ? Promise.resolve([])
+      : prisma.cliente.findMany({
+          where: { ...aQuienFalta, calidadDireccion: calidad },
+          orderBy: { clave: 'asc' },
+          take: cuantos,
+          include: { telefonos: { where: { origen: { in: ['DIRECTO', 'CLAVE_DEL_POS'] } } } },
+        });
+
+  const pasables = await porCalidad('PASABLE', cuantas);
+  const detalladas = await porCalidad('DETALLADA', cuantas - pasables.length);
+  const candidatos = [...pasables, ...detalladas];
 
   if (candidatos.length === 0) return { tanda: 0, lineas: [] };
 
