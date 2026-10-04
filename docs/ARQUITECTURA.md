@@ -1028,3 +1028,112 @@ prometió a los que ya respondieron.
 | La pantalla de la pizzería | `src/app/clientes/` |
 | Cargar los dos archivos del POS | `npm run clientes:importar` |
 | Comprobaciones | `npm run test:ubicaciones` |
+
+## 21. El POS y el agente del local
+
+### Dónde está cada cosa
+
+Soft Restaurant 9.5 Pro corre en **PZLE-SVR-02**, en el local, sobre SQL
+Server 2014 Express, instancia `.\NATIONALSOFT`. Control Express corre en
+Vercel, en la nube. **No hay VPN entre los dos.**
+
+La base de producción del POS **se llama `pruebas`**. La que se llama
+`softrestaurant95pro` está vacía. Esto no es una curiosidad: cualquier técnico
+que entre a ese servidor puede borrar `pruebas` creyendo que hace limpieza, y
+ahí viven los 83.665 pedidos del negocio. Todo script de este proyecto elige la
+base **por cantidad de pedidos, nunca por el nombre**.
+
+### Por qué un agente y no una conexión directa
+
+Abrir el puerto 1433 a internet sería dejar la contabilidad del negocio al
+alcance del primero que escanee esa dirección, y hay robots que hacen
+exactamente eso todo el día. Más todavía con un SQL Server 2014 que ya no
+recibe parches y un `sa` con la contraseña de fábrica del fabricante — que,
+confirmado por el dueño, es la misma en todas las instalaciones de National
+Soft.
+
+Así que el que viaja es el agente: corre allá, lee, y sale. El SQL Server nunca
+se asoma.
+
+| | |
+|---|---|
+| Lenguaje | PowerShell, sin instalar nada |
+| Autenticación | cuenta de Windows del servidor; **ninguna contraseña en ningún archivo** |
+| Permisos | solo lectura |
+| Frecuencia | cada 30 segundos |
+| Dirección | una sola: del POS hacia la nube |
+
+### Lo que el POS ya mide
+
+La tabla `cheques` trae la línea de tiempo completa de una entrega: `fecha`,
+`timemarktoconfirmed`, `empaquetado`, `asignacion`, `salidarepartidor`,
+`arriborepartidor` y `cierre`. `tempcheques` es la misma tabla para los pedidos
+abiertos en este momento.
+
+**Pero sólo se llenan `salidarepartidor` y `arriborepartidor`** (97% de los
+pedidos). `empaquetado` y `asignacion` están en cero siempre, porque nadie usa
+esas marcas en el POS. Por eso los minutos dentro del local no se pueden partir
+entre cocina y espera.
+
+El número al 4 de octubre de 2026, sobre 3.719 pedidos de 90 días (99% a
+domicilio): **31 minutos dentro del local + 48 en la calle = 79 minutos**.
+
+### Las llaves compartidas
+
+Es lo que hace que todo esto encaje sin adivinar nada:
+
+| En el POS | En Control Express |
+|---|---|
+| `cheques.idclientedomicilio` | `Cliente.clave` |
+| `cheques.iddireccion` | `direccionesdomicilio` del POS |
+| `cheques.idmesero` | `Chofer.idMeseroSoftRestaurant` |
+
+**Nunca se cruza por nombre.** O la clave calza o el pedido queda sin ligar,
+con su clave guardada para el día que ese cliente se importe. Cruzar nombres
+parecidos es como se terminan mezclando dos clientes distintos, y en esta base
+hay 593 nombres repetidos.
+
+### El pedido que llega es una copia
+
+`Pedido` es un reflejo. El pedido nace y muere en el POS; si las dos versiones
+difieren, **manda el POS**, y por eso cada envío reemplaza lo que hubiera.
+Nada de lo que se escriba en Control Express vuelve al POS por su cuenta.
+
+### Cómo se protege el envío
+
+Igual que el webhook de WhatsApp, y por la misma razón: la dirección es pública.
+
+- Se firma el cuerpo **crudo** con HMAC-SHA256 y un secreto compartido.
+- **La hora va dentro de la firma**, y el servidor rechaza lo que tenga más de
+  cinco minutos: así un envío grabado no se puede repetir mañana.
+- Comparación en tiempo constante.
+- Un pedido malo **no tumba el lote**: el agente reintenta lo que no se
+  confirma, y si uno solo hiciera fallar la llamada los buenos entrarían una y
+  otra vez.
+
+Comprobado que la firma que calcula PowerShell y la que espera Node dan el
+mismo hash. Es lo único que fallaría en silencio a veinte kilómetros de aquí.
+
+### Instalarlo
+
+```
+npm run agente:preparar              arma storage/agente-pos con el secreto
+npm run vercel:variables -- --aplicar sube el secreto a la nube
+```
+
+Después se copia esa carpeta a `C:\nationalsoft\agente` en el servidor del
+local y se corre `PROBAR-AGENTE.bat`, que lee y muestra **sin mandar nada**,
+con el cliente y el teléfono tapados para que la salida se pueda compartir.
+Sólo cuando eso sale bien se corre `ARRANCAR-AGENTE.bat`.
+
+El secreto no se imprime ni se teclea: lo necesitan dos programas, no una
+persona. La carpeta vive en `storage/`, que git ignora, porque lo lleva dentro.
+
+### Lo que falta y por qué no está
+
+Una aplicación para que el cliente pida tendría que **escribir** en el POS, y
+todo lo de arriba sólo lee. La versión instalada está descontinuada, así que no
+hay integración oficial que comprar; la ventaja es que el esquema está
+congelado y no va a cambiar nunca. Si alguna vez se escribe, se prueba primero
+contra una copia restaurada en otra base de ese mismo servidor, nunca contra
+`pruebas`.
