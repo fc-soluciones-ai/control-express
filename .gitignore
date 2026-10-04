@@ -43,3 +43,6 @@ muestra-logo.png
 
 # Compilados de Python
 __pycache__/
+
+# Informe del POS: puede traer nombres de tablas del cliente.
+scripts/sql/salida-*.txt
