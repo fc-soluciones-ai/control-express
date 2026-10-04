@@ -797,6 +797,7 @@ model Cliente {
 
   telefonos   TelefonoCliente[]
   solicitudes SolicitudUbicacion[]
+  mensajes    MensajeUbicacion[]
   ubicaciones UbicacionCliente[]
 
   @@index([estado])
@@ -948,4 +949,57 @@ model UbicacionCliente {
   @@index([clienteId, creadaEn])
   @@index([estado])
   @@map("ubicaciones_cliente")
+}
+
+/// Una ubicacion que llego por WhatsApp, antes de saber de quien es.
+///
+/// POR QUE NO ENTRA DIRECTO EN UbicacionCliente
+///
+/// Porque lo que llega es un numero de telefono, no un cliente. Tres cosas
+/// pasan todos los dias y las tres necesitan que alguien decida:
+///
+///   - El numero no esta en la base (pidio desde el celular de la hija).
+///   - El numero esta en dos fichas distintas: 337 numeros de esta base lo
+///     estan, y no hay forma de adivinar cual de los dos mando el punto.
+///   - El numero esta bien pero el punto cayo en otro canton.
+///
+/// Si esto escribiera directo en la ficha del cliente, el primer caso se
+/// perderia y el segundo le pondria la casa de uno al otro. Aqui queda todo
+/// lo que llego, ligado o no, y lo que se liga se copia a UbicacionCliente.
+model MensajeUbicacion {
+  id String @id @default(cuid())
+
+  /// El id del mensaje que asigna Meta. Es unico y sirve para no procesar dos
+  /// veces el mismo: WhatsApp reintenta el envio si no contestamos rapido.
+  mensajeId String @unique @map("mensaje_id")
+
+  /// Quien lo mando, con codigo de pais y sin el mas: 50687069355.
+  telefonoCrudo String  @map("telefono_crudo")
+  /// Los ocho digitos, si se pudo reconocer un numero de Costa Rica.
+  telefono      String?
+
+  latitud   Float
+  longitud  Float
+  /// Lo que WhatsApp manda cuando el cliente elige un lugar con nombre.
+  nombre    String?
+  direccion String?
+
+  /// LIGADA | SIN_CLIENTE | AMBIGUA | FUERA_DE_ZONA | REPETIDA
+  estado String
+
+  /// A que ficha se ligo, cuando se pudo.
+  clienteId  String? @map("cliente_id")
+  /// Cuantas fichas tienen ese telefono, para explicar una AMBIGUA.
+  candidatos Int     @default(0)
+
+  recibidoEn  DateTime  @default(now()) @map("recibido_en")
+  /// Cuando una persona resolvio una AMBIGUA o una SIN_CLIENTE.
+  resueltoEn  DateTime? @map("resuelto_en")
+  resueltoPor String?   @map("resuelto_por")
+
+  cliente Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  @@index([estado, recibidoEn])
+  @@index([telefono])
+  @@map("mensajes_ubicacion")
 }
