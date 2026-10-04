@@ -19,13 +19,106 @@
 #  monto. El archivo que se manda no lleva datos de nadie.
 # =============================================================================
 
+#  AUTOPRUEBA
+#  Correrlo con -Probar no toca ninguna base: arma tablas de mentira y
+#  comprueba el armado del informe. Existe porque este script se ejecuta en
+#  una computadora a la que no tenemos acceso, y una falla tonta significa
+#  hacer volver a alguien al local. Correrla antes de mandar una version nueva.
+# =============================================================================
+
+param([switch]$Probar)
+
 $ErrorActionPreference = 'Stop'
 $salida = Join-Path $PSScriptRoot 'salida-softrestaurant.txt'
 $lineas = New-Object System.Collections.Generic.List[string]
 
 function Escribir($texto) {
   $lineas.Add($texto)
-  Write-Host $texto
+  if (-not $Probar) { Write-Host $texto }
+}
+
+function Consultar($cadena, $sql) {
+  $con = New-Object System.Data.SqlClient.SqlConnection $cadena
+  $con.Open()
+  try {
+    $cmd = $con.CreateCommand()
+    $cmd.CommandText = $sql
+    $cmd.CommandTimeout = 120
+    $ad = New-Object System.Data.SqlClient.SqlDataAdapter $cmd
+    $tabla = New-Object System.Data.DataTable
+    [void]$ad.Fill($tabla)
+    # La coma de adelante es obligatoria. Sin ella PowerShell desarma la tabla
+    # al devolverla y quien la recibe se queda con las filas sueltas, de modo
+    # que .Rows resulta nulo y revienta en la primera linea que lo use.
+    return ,$tabla
+  } finally { $con.Close() }
+}
+
+function ComoTexto($tabla, $columnas) {
+  if ($null -eq $tabla -or $null -eq $tabla.Rows -or $tabla.Rows.Count -eq 0) {
+    return @('  (ninguna)')
+  }
+  $filas = @()
+  $filas += ('  ' + (($columnas | ForEach-Object { $_.PadRight(26) }) -join ''))
+  $filas += ('  ' + ('-' * (26 * $columnas.Count)))
+  foreach ($r in $tabla.Rows) {
+    $celdas = @()
+    foreach ($c in $columnas) {
+      $valor = [string]$r[$c]
+      if ($valor.Length -gt 25) { $valor = $valor.Substring(0, 25) }
+      $celdas += $valor.PadRight(26)
+    }
+    $filas += ('  ' + ($celdas -join ''))
+  }
+  return $filas
+}
+
+if ($Probar) {
+  $fallos = 0
+  function Comprobar($descripcion, $real, $esperado) {
+    if ("$real" -eq "$esperado") {
+      Write-Host "OK    $descripcion"
+    } else {
+      Write-Host "FALLA $descripcion"
+      Write-Host "        esperado: $esperado"
+      Write-Host "        obtenido: $real"
+      $script:fallos = $script:fallos + 1
+    }
+  }
+
+  # Una tabla devuelta por una funcion: el error que rompio la primera version.
+  function TablaDeMentira {
+    $t = New-Object System.Data.DataTable
+    [void]$t.Columns.Add('name')
+    [void]$t.Rows.Add('softrestaurant95pro')
+    [void]$t.Rows.Add('otra')
+    return ,$t
+  }
+
+  $t = TablaDeMentira
+  Comprobar 'la tabla vuelve entera y no en filas sueltas' $t.GetType().Name 'DataTable'
+  Comprobar 'y se le puede leer .Rows' $t.Rows.Count 2
+
+  $nombres = @()
+  foreach ($f in $t.Rows) { $nombres += [string]$f['name'] }
+  Comprobar 'se sacan los nombres de las bases' ($nombres -join ',') 'softrestaurant95pro,otra'
+
+  $vacia = New-Object System.Data.DataTable
+  [void]$vacia.Columns.Add('tabla')
+  Comprobar 'una consulta sin filas no revienta' (ComoTexto $vacia @('tabla')) '  (ninguna)'
+  Comprobar 'una tabla nula tampoco' (ComoTexto $null @('tabla')) '  (ninguna)'
+
+  $con = New-Object System.Data.DataTable
+  [void]$con.Columns.Add('tabla')
+  [void]$con.Columns.Add('filas')
+  [void]$con.Rows.Add('cheques', '48213')
+  $texto = ComoTexto $con @('tabla', 'filas')
+  Comprobar 'con filas salen encabezado, raya y el dato' $texto.Count 3
+  Comprobar 'y el dato va en la ultima linea' ($texto[2].Trim() -replace '\s+', ' ') 'cheques 48213'
+
+  Write-Host ''
+  if ($fallos -eq 0) { Write-Host 'Todo bien.' } else { Write-Host "$fallos fallas"; exit 1 }
+  exit 0
 }
 
 Escribir "INFORME DE LA BASE DE SOFT RESTAURANT"
@@ -63,37 +156,6 @@ Escribir ("Instancias de SQL Server encontradas: " + ($instancias -join ', '))
 Escribir ""
 
 # --- 2. Buscar la base de Soft Restaurant en cada instancia -----------------
-function Consultar($cadena, $sql) {
-  $con = New-Object System.Data.SqlClient.SqlConnection $cadena
-  $con.Open()
-  try {
-    $cmd = $con.CreateCommand()
-    $cmd.CommandText = $sql
-    $cmd.CommandTimeout = 120
-    $ad = New-Object System.Data.SqlClient.SqlDataAdapter $cmd
-    $tabla = New-Object System.Data.DataTable
-    [void]$ad.Fill($tabla)
-    return $tabla
-  } finally { $con.Close() }
-}
-
-function ComoTexto($tabla, $columnas) {
-  if ($tabla.Rows.Count -eq 0) { return @('  (ninguna)') }
-  $filas = @()
-  $filas += ('  ' + (($columnas | ForEach-Object { $_.PadRight(26) }) -join ''))
-  $filas += ('  ' + ('-' * (26 * $columnas.Count)))
-  foreach ($r in $tabla.Rows) {
-    $celdas = @()
-    foreach ($c in $columnas) {
-      $valor = [string]$r[$c]
-      if ($valor.Length -gt 25) { $valor = $valor.Substring(0, 25) }
-      $celdas += $valor.PadRight(26)
-    }
-    $filas += ('  ' + ($celdas -join ''))
-  }
-  return $filas
-}
-
 $encontrada = $false
 foreach ($servidor in $servidores) {
   $base = "Server=$servidor;Integrated Security=True;Connect Timeout=10;TrustServerCertificate=True"
@@ -107,13 +169,20 @@ foreach ($servidor in $servidores) {
     continue
   }
 
+  $nombres = @()
+  if ($null -ne $bases -and $null -ne $bases.Rows) {
+    foreach ($f in $bases.Rows) { $nombres += [string]$f['name'] }
+  }
+
   Escribir "SERVIDOR $servidor"
-  Escribir ("  bases: " + (($bases.Rows | ForEach-Object { $_['name'] }) -join ', '))
+  Escribir ("  bases: " + ($nombres -join ', '))
   Escribir ""
 
-  foreach ($fila in $bases.Rows) {
-    $nombre = [string]$fila['name']
-    if ($nombre -notlike '*soft*' -and $nombre -notlike '*restaur*') { continue }
+  foreach ($nombre in $nombres) {
+    # Si en el servidor hay una sola base de usuario, es esa aunque se llame
+    # de otra forma: no vale la pena hacer volver a nadie por el nombre.
+    $esLaBuena = ($nombre -like '*soft*') -or ($nombre -like '*restaur*') -or ($nombres.Count -eq 1)
+    if (-not $esLaBuena) { continue }
     $encontrada = $true
     $cadena = "$base;Database=$nombre"
 
