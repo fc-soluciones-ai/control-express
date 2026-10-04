@@ -124,6 +124,25 @@ function ComoPedido($fila) {
   }
 }
 
+<#
+  Una copia del pedido con el cliente y el telefono tapados.
+
+  Se usa solo en el modo de prueba, para que la salida se pueda mandar por
+  WhatsApp sin que viajen datos de nadie.
+
+  Se copia campo por campo y no con .Clone() porque el diccionario ordenado de
+  PowerShell 5.1 NO tiene ese metodo, aunque la documentacion de .NET diga que
+  si. Tapar sobre el original tampoco sirve: dejaria el pedido sin cliente
+  justo antes de mandarlo.
+#>
+function Tapado($pedido) {
+  $copia = [ordered]@{}
+  foreach ($clave in $pedido.Keys) { $copia[$clave] = $pedido[$clave] }
+  if ($copia['claveCliente']) { $copia['claveCliente'] = '***' }
+  if ($copia['telefonoUsado']) { $copia['telefonoUsado'] = '***' }
+  return $copia
+}
+
 # ---------------------------------------------------------------------------
 if ($Autoprueba) {
   $fallos = 0
@@ -174,6 +193,20 @@ if ($Autoprueba) {
   $p2 = ComoPedido $t.Rows[1]
   Comprobar 'sin direccion no es a domicilio' $p2.esADomicilio 'False'
   Comprobar 'un cancelado llega marcado' $p2.cancelado 'True'
+
+  # El modo de prueba: tapar los datos y contar. Los dos fallaban y los dos
+  # corren SOLO alla, en una maquina a la que no llegamos.
+  $tapado = Tapado $p
+  Comprobar 'el cliente sale tapado' $tapado.claveCliente '***'
+  Comprobar 'el telefono tambien' $tapado.telefonoUsado '***'
+  Comprobar 'el folio se deja ver' $tapado.folio '12345'
+  Comprobar 'y el original queda intacto' $p.claveCliente '008686'
+
+  $dos = @($p, $p2)
+  # Con UN solo resultado, sin el @() el .Count da la cantidad de campos.
+  Comprobar 'cuenta los de a domicilio' @($dos | Where-Object { $_.esADomicilio }).Count 1
+  Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
+  Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
 
   Write-Host ''
   if ($fallos -eq 0) { Write-Host 'Todo bien.' } else { Write-Host "$fallos fallas"; exit 1 }
@@ -265,14 +298,14 @@ function UnaPasada {
     Anotar "MODO PRUEBA: se leyeron $($pedidos.Count) pedidos. No se manda nada."
     Anotar "Los tres primeros, con el cliente y el telefono tapados:"
     foreach ($p in $pedidos | Select-Object -First 3) {
-      $copia = $p.Clone()
-      if ($copia.claveCliente) { $copia.claveCliente = '***' }
-      if ($copia.telefonoUsado) { $copia.telefonoUsado = '***' }
-      Anotar ('  ' + ($copia | ConvertTo-Json -Compress))
+      Anotar ('  ' + ((Tapado $p) | ConvertTo-Json -Compress))
     }
-    $conSalida = ($pedidos | Where-Object { $_.salioEn }).Count
-    $conLlegada = ($pedidos | Where-Object { $_.llegoEn }).Count
-    $aDomicilio = ($pedidos | Where-Object { $_.esADomicilio }).Count
+    # Los @() son obligatorios. Sin ellos, cuando el filtro deja pasar UN solo
+    # pedido, PowerShell devuelve el diccionario en vez de una lista de uno, y
+    # .Count pasa a ser la cantidad de CAMPOS del pedido: catorce.
+    $conSalida = @($pedidos | Where-Object { $_.salioEn }).Count
+    $conLlegada = @($pedidos | Where-Object { $_.llegoEn }).Count
+    $aDomicilio = @($pedidos | Where-Object { $_.esADomicilio }).Count
     Anotar "  a domicilio: $aDomicilio   con salida: $conSalida   con llegada: $conLlegada"
     return $desde
   }
