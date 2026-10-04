@@ -166,6 +166,56 @@ function Tapado($pedido) {
   return $copia
 }
 
+<#
+  Las columnas del cliente, tal como estan en el POS.
+
+  No se interpreta nada aqui. Que telefono sirve, que direccion alcanza y en
+  que estado queda el cliente lo decide el servidor, con la misma libreria que
+  usa la pantalla. Si esa logica viviera aqui habria dos verdades, y esta no la
+  probaria nadie nunca.
+#>
+function ComoCliente($fila) {
+  $num = {
+    param($v)
+    if ($null -eq $v -or $v -is [System.DBNull]) { return $null }
+    $d = [double]$v
+    if ($d -eq 0) { return $null }
+    return $d
+  }
+  return [ordered]@{
+    clave            = [string]$fila['idcliente']
+    nombre           = [string]$fila['nombre']
+    correo           = [string]$fila['email']
+    direccionGeneral = [string]$fila['direccion']
+    telefonos        = @(
+      [string]$fila['telefono1'], [string]$fila['telefono2'], [string]$fila['telefono3'],
+      [string]$fila['telefono4'], [string]$fila['telefono5']
+    )
+    iddireccion      = [string]$fila['iddireccion']
+    calle            = [string]$fila['calle']
+    cruzamiento1     = [string]$fila['cruzamiento1']
+    cruzamiento2     = [string]$fila['cruzamiento2']
+    referencia       = [string]$fila['referencia']
+    zona             = [string]$fila['zona']
+    latitud          = (& $num $fila['latitude'])
+    longitud         = (& $num $fila['longitude'])
+  }
+}
+
+<#
+  Deja una clave del POS en algo que se puede meter en una consulta.
+
+  Las claves son codigos del catalogo, pero vienen de un campo de texto que
+  alguien lleno a mano: lo que no sea letra, numero, guion o punto se descarta
+  en vez de escaparse. Una clave rara no vale el riesgo de armar SQL con texto
+  de afuera.
+#>
+function ClaveSegura($clave) {
+  $limpia = ($clave -replace '[^A-Za-z0-9\-\._]', '')
+  if ($limpia.Length -eq 0 -or $limpia.Length -gt 30) { return $null }
+  return $limpia
+}
+
 # ---------------------------------------------------------------------------
 if ($Autoprueba) {
   $fallos = 0
@@ -245,6 +295,32 @@ if ($Autoprueba) {
   Comprobar 'el telefono tambien' $tapado.telefonoUsado '***'
   Comprobar 'el folio se deja ver' $tapado.folio '12345'
   Comprobar 'y el original queda intacto' $p.claveCliente '008686'
+
+  # Las claves que se meten en una consulta.
+  Comprobar 'una clave normal pasa' (ClaveSegura '008686') '008686'
+  Comprobar 'una con guion tambien' (ClaveSegura '3-101-809629') '3-101-809629'
+  Comprobar 'lo que trae comillas se limpia' (ClaveSegura "006'; DROP TABLE") '006DROPTABLE'
+  Comprobar 'una vacia se descarta' ($null -eq (ClaveSegura '   ')) 'True'
+  Comprobar 'una absurdamente larga tambien' ($null -eq (ClaveSegura ('9' * 40))) 'True'
+
+  # El cliente, con sus cinco telefonos y las coordenadas del POS.
+  $tc = New-Object System.Data.DataTable
+  foreach ($c in @('idcliente','nombre','email','direccion','telefono1','telefono2','telefono3','telefono4','telefono5','iddireccion','calle','cruzamiento1','cruzamiento2','referencia','zona')) {
+    [void]$tc.Columns.Add($c)
+  }
+  [void]$tc.Columns.Add('latitude', [double])
+  [void]$tc.Columns.Add('longitude', [double])
+  $fc = $tc.NewRow()
+  $fc['idcliente'] = '008686'; $fc['nombre'] = 'MARIA RODRIGUEZ'; $fc['telefono1'] = '8706-9355'
+  $fc['calle'] = 'CEBADILLA LAGUITO'; $fc['referencia'] = 'PORTON VERDE'
+  $fc['latitude'] = 0; $fc['longitude'] = 0
+  $tc.Rows.Add($fc)
+  $cl = ComoCliente $tc.Rows[0]
+  Comprobar 'la clave del cliente viaja entera' $cl.clave '008686'
+  Comprobar 'van los cinco campos de telefono' $cl.telefonos.Count 5
+  Comprobar 'el primero es el que tiene algo' $cl.telefonos[0] '8706-9355'
+  # El POS tiene las columnas pero estan en cero en las 12.833 direcciones.
+  Comprobar 'una coordenada en cero no es una ubicacion' ($null -eq $cl.latitud) 'True'
 
   $dos = @($p, $p2)
   # Con UN solo resultado, sin el @() el .Count da la cantidad de campos.
@@ -387,12 +463,127 @@ function UnaPasada {
     Anotar ("  rechazados: " + ($respuesta.rechazados | ConvertTo-Json -Compress))
   }
 
+  # Los clientes de estos pedidos, enseguida. Es lo que hace que el que pidio
+  # por primera vez hace diez minutos aparezca con nombre y no con un codigo.
+  # Si falla, no se pierde nada: la sincronizacion completa lo recoge despues.
+  try {
+    MandarClientesDe $pedidos
+  } catch {
+    Anotar ("  no se pudieron mandar los clientes de estos pedidos: " + $_.Exception.Message)
+  }
+
   # La marca solo avanza cuando el envio salio bien. Si fallo, la proxima
   # pasada vuelve a intentar desde el mismo punto y no se pierde nada.
   $ultima = ($filas.Rows | ForEach-Object { [datetime]$_['fecha'] } | Sort-Object | Select-Object -Last 1)
   $nueva = $ultima.ToString('yyyy-MM-dd HH:mm:ss')
   Set-Content -Path $rutaMarca -Value $nueva -Encoding utf8
   return $nueva
+}
+
+# --- Los clientes --------------------------------------------------------
+#
+# La primera carga salio de un Excel exportado a mano, y al cruzarlo con los
+# pedidos reales aparecio el problema: de los 206 clientes que pidieron en una
+# semana, 53 no estaban en la exportacion. Una exportacion es una foto y la
+# caja crea fichas todos los dias. Asi que los clientes llegan por aqui.
+
+$urlClientes = ($config.url -replace '/pedidos$', '/clientes')
+
+# La ficha de CASA si existe, y si no cualquiera: es la direccion a la que se
+# reparte. OUTER APPLY y no JOIN para que un cliente sin direccion entre igual.
+$SQL_CLIENTE = "
+  SELECT c.idcliente, c.nombre, c.email, c.direccion,
+         c.telefono1, c.telefono2, c.telefono3, c.telefono4, c.telefono5,
+         d.iddireccion, d.calle, d.cruzamiento1, d.cruzamiento2, d.referencia,
+         d.estado AS zona, d.latitude, d.longitude
+  FROM dbo.clientes c
+  OUTER APPLY (
+    SELECT TOP 1 dd.iddireccion, dd.calle, dd.cruzamiento1, dd.cruzamiento2,
+           dd.referencia, dd.estado, dd.latitude, dd.longitude
+    FROM dbo.direccionesdomicilio dd
+    WHERE dd.idcliente = c.idcliente
+    ORDER BY CASE WHEN dd.iddireccion LIKE 'CASA%' THEN 0 ELSE 1 END, dd.iddireccion
+  ) d"
+
+function MandarClientes($lista) {
+  if ($lista.Count -eq 0) { return $null }
+  $cuerpo = (@{ clientes = $lista } | ConvertTo-Json -Depth 5 -Compress)
+  $hora = AhoraUnix
+  $cabeceras = @{
+    'x-agente-firma' = (Firmar $config.secreto $hora $cuerpo)
+    'x-agente-hora'  = $hora
+    'content-type'   = 'application/json'
+  }
+  return Invoke-RestMethod -Uri $urlClientes -Method Post -Headers $cabeceras -Body $cuerpo -TimeoutSec 120
+}
+
+<#
+  Manda los clientes de unos pedidos concretos.
+
+  Es lo que resuelve el caso del cliente que pidio por primera vez hace diez
+  minutos: son unas pocas fichas y entran enseguida, sin esperar a la
+  sincronizacion completa.
+#>
+function MandarClientesDe($pedidos) {
+  $claves = @()
+  foreach ($p in $pedidos) {
+    $c = ClaveSegura $p.claveCliente
+    if ($c -and $claves -notcontains $c) { $claves += $c }
+  }
+  if ($claves.Count -eq 0) { return }
+
+  $enLista = ($claves | ForEach-Object { "'$_'" }) -join ','
+  $filas = Consultar $cadena "$SQL_CLIENTE WHERE c.idcliente IN ($enLista)"
+  if ($null -eq $filas -or $filas.Rows.Count -eq 0) { return }
+
+  $lista = @()
+  foreach ($f in $filas.Rows) { $lista += (ComoCliente $f) }
+  $r = MandarClientes $lista
+  if ($r) {
+    Anotar ("  clientes de esos pedidos: {0} nuevos, {1} actualizados, {2} sin cambio" -f `
+        $r.nuevos, $r.actualizados, $r.sinCambio)
+  }
+}
+
+<#
+  La sincronizacion completa del catalogo.
+
+  Corre al arrancar y cada tantas horas. Es cara (doce mil fichas en tandas de
+  quinientas), por eso no va en cada pasada: lo urgente ya lo cubre
+  MandarClientesDe.
+#>
+function SincronizarTodosLosClientes {
+  $total = Consultar $cadena "SELECT COUNT(*) AS n FROM dbo.clientes"
+  $cuantos = [int]$total.Rows[0]['n']
+  Anotar "Sincronizando el catalogo de clientes: $cuantos fichas."
+
+  $tanda = 500
+  $hechos = 0
+  $nuevos = 0
+  for ($desdeFila = 0; $desdeFila -lt $cuantos; $desdeFila += $tanda) {
+    $filas = Consultar $cadena "$SQL_CLIENTE ORDER BY c.idcliente OFFSET $desdeFila ROWS FETCH NEXT $tanda ROWS ONLY"
+    if ($null -eq $filas -or $filas.Rows.Count -eq 0) { break }
+    $lista = @()
+    foreach ($f in $filas.Rows) { $lista += (ComoCliente $f) }
+    $r = MandarClientes $lista
+    $hechos += $lista.Count
+    if ($r) { $nuevos += [int]$r.nuevos }
+    Anotar "  clientes $hechos de $cuantos"
+  }
+  Anotar "Catalogo de clientes al dia: $hechos revisados, $nuevos nuevos."
+  Set-Content -Path $rutaClientes -Value (Get-Date -Format 'o') -Encoding utf8
+}
+
+$rutaClientes = Join-Path $carpeta 'agente-pos.clientes.txt'
+$horasClientes = 12
+if ($config.horasEntreCatalogos) { $horasClientes = [int]$config.horasEntreCatalogos }
+
+function TocaElCatalogo {
+  if (-not (Test-Path $rutaClientes)) { return $true }
+  try {
+    $ultima = [datetime](Get-Content $rutaClientes -Raw)
+    return ((Get-Date) - $ultima).TotalHours -ge $horasClientes
+  } catch { return $true }
 }
 
 if ($Probar -or $UnaVez) {
@@ -404,6 +595,9 @@ if ($Probar -or $UnaVez) {
 Anotar "Agente arrancado. Una pasada cada $CadaSegundos segundos. Ctrl+C para parar."
 while ($true) {
   try {
+    # El catalogo completo va primero y de tarde en tarde: es caro y lo urgente
+    # ya lo cubren los clientes de cada pedido.
+    if (TocaElCatalogo) { SincronizarTodosLosClientes }
     $desde = UnaPasada $desde
   } catch {
     # Que se caiga el internet del local es normal y no es motivo para que el

@@ -24,6 +24,17 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { prisma } from '@/lib/db/prisma';
+import {
+  calidadDeDireccion,
+  esCelular,
+  esTelefonoCR,
+  estadoDelCliente,
+  juntarDireccion,
+  leerTelefono,
+  mejorDireccion,
+  nombreBuscable,
+  type TelefonoLeido,
+} from '@/lib/clientes/normalizar';
 import { aCentimos } from '@/lib/money/money';
 import { ErrorNegocio } from '@/server/errores';
 
@@ -264,4 +275,234 @@ export async function estadoDeLaSincronizacion() {
     sinRepartidorLigado: sinRepartidor,
     porEstado: porEstado.map((f) => ({ estado: f.estado, cuantos: f._count._all })),
   };
+}
+
+// -----------------------------------------------------------------------------
+// Los clientes, leidos del POS
+// -----------------------------------------------------------------------------
+//
+// EL EXCEL QUEDO ATRAS
+//
+// La primera carga salio de dos archivos exportados a mano. Al cruzarlos con
+// los pedidos reales aparecio el problema: de los 206 clientes que pidieron en
+// una semana, 53 no existian en la exportacion. Eran fichas creadas despues.
+// Una exportacion es una foto, y la caja crea clientes todos los dias.
+//
+// Asi que los clientes llegan por el mismo agente que los pedidos, y la lista
+// se mantiene sola.
+//
+// SE RECALCULA TODO AQUI, NO ALLA
+//
+// El agente manda los campos crudos del POS, tal como estan. Quien decide si
+// un telefono sirve, si una direccion alcanza y en que estado queda el cliente
+// es esta aplicacion, con la misma libreria que usa la pantalla. Si esa logica
+// viviera en el agente, habria dos verdades y la del servidor del local nadie
+// la probaria nunca.
+
+export interface ClienteDelPos {
+  /** idcliente del POS. Los ceros de adelante son parte de la clave. */
+  clave: string;
+  nombre?: string | null;
+  correo?: string | null;
+  /** clientes.direccion, el texto suelto del catalogo. */
+  direccionGeneral?: string | null;
+  /** Los cinco campos de telefono, tal como vienen. */
+  telefonos?: Array<string | null>;
+  /** De direccionesdomicilio: la ficha de CASA si existe. */
+  iddireccion?: string | null;
+  calle?: string | null;
+  cruzamiento1?: string | null;
+  cruzamiento2?: string | null;
+  referencia?: string | null;
+  zona?: string | null;
+  /** El POS tiene las columnas; hoy estan vacias en las 12.833 direcciones. */
+  latitud?: number | null;
+  longitud?: number | null;
+}
+
+export interface ResultadoDeClientes {
+  recibidos: number;
+  nuevos: number;
+  actualizados: number;
+  sinCambio: number;
+  listos: number;
+  conUbicacionDelPos: number;
+  rechazados: Array<{ clave: string; motivo: string }>;
+}
+
+/**
+ * Guarda un lote de clientes del POS.
+ *
+ * No pisa lo que una persona ya confirmo: un telefono con verificadoEn puesto
+ * se queda, aunque el POS mande otro. Lo que el cliente contesto por WhatsApp
+ * vale mas que lo que alguien tecleo en el mostrador.
+ */
+export async function sincronizarClientes(
+  clientes: ClienteDelPos[],
+): Promise<ResultadoDeClientes> {
+  if (!Array.isArray(clientes)) {
+    throw new ErrorNegocio('DATOS_INVALIDOS', 'El envio no trae una lista de clientes.');
+  }
+  if (clientes.length > 500) {
+    throw new ErrorNegocio('DATOS_INVALIDOS', 'Maximo 500 clientes por envio.');
+  }
+
+  const resultado: ResultadoDeClientes = {
+    recibidos: clientes.length,
+    nuevos: 0,
+    actualizados: 0,
+    sinCambio: 0,
+    listos: 0,
+    conUbicacionDelPos: 0,
+    rechazados: [],
+  };
+
+  for (const crudo of clientes) {
+    try {
+      const clave = (crudo.clave ?? '').trim();
+      if (clave === '') {
+        resultado.rechazados.push({ clave: '(vacia)', motivo: 'sin clave' });
+        continue;
+      }
+
+      const nombre = (crudo.nombre ?? '').trim();
+
+      // Los telefonos, leidos con la misma regla que todo lo demas.
+      const leidos: TelefonoLeido[] = [];
+      const vistos = new Set<string>();
+      for (const valor of crudo.telefonos ?? []) {
+        const leido = leerTelefono(valor);
+        if (!leido || vistos.has(leido.numero)) continue;
+        vistos.add(leido.numero);
+        leidos.push(leido);
+      }
+      // La clave del POS es un telefono en 381 fichas de esta base.
+      if (esTelefonoCR(clave) && !vistos.has(clave)) {
+        vistos.add(clave);
+        leidos.push({ numero: clave, origen: 'CLAVE_DEL_POS', comoVenia: clave });
+      }
+
+      const principal =
+        leidos.find((t) => t.origen === 'DIRECTO' && esCelular(t.numero)) ??
+        leidos.find((t) => t.origen === 'CLAVE_DEL_POS' && esCelular(t.numero)) ??
+        leidos.find((t) => t.origen === 'DIRECTO') ??
+        leidos.find((t) => esCelular(t.numero)) ??
+        leidos[0] ??
+        null;
+
+      const direccionDomicilio = juntarDireccion([
+        crudo.calle,
+        crudo.cruzamiento1,
+        crudo.cruzamiento2,
+        crudo.referencia,
+        crudo.zona,
+      ]);
+      const direccionTexto = mejorDireccion(
+        (crudo.direccionGeneral ?? '').trim(),
+        direccionDomicilio,
+      );
+      const calidadDireccion = calidadDeDireccion(direccionTexto);
+
+      // Un telefono compartido se detecta contra lo que ya hay guardado: el
+      // lote no alcanza, porque las dos fichas pueden venir en envios
+      // distintos.
+      const compartido = principal
+        ? (await prisma.cliente.count({
+            where: { telefono: principal.numero, clave: { not: clave } },
+          })) > 0
+        : false;
+
+      const estado = estadoDelCliente({
+        nombre,
+        telefono: principal?.numero ?? null,
+        origenTelefono: principal?.origen ?? null,
+        calidadDireccion,
+        telefonoCompartido: compartido,
+      });
+      if (estado === 'LISTO') resultado.listos += 1;
+
+      const datos = {
+        nombre,
+        nombreBuscable: nombreBuscable(nombre),
+        telefono: principal?.numero ?? null,
+        esCelular: principal ? esCelular(principal.numero) : false,
+        direccionTexto,
+        calidadDireccion,
+        correo: (crudo.correo ?? '').trim() || null,
+        estado,
+        telefonoCompartido: compartido,
+        origenCarga: 'POS',
+      };
+
+      const existia = await prisma.cliente.findUnique({
+        where: { clave },
+        select: { id: true, nombre: true, telefono: true, direccionTexto: true, estado: true },
+      });
+
+      const cliente = existia
+        ? await prisma.cliente.update({ where: { clave }, data: datos })
+        : await prisma.cliente.create({ data: { clave, ...datos } });
+
+      if (!existia) resultado.nuevos += 1;
+      else if (
+        existia.nombre === datos.nombre &&
+        existia.telefono === datos.telefono &&
+        existia.direccionTexto === datos.direccionTexto &&
+        existia.estado === datos.estado
+      ) {
+        resultado.sinCambio += 1;
+      } else {
+        resultado.actualizados += 1;
+      }
+
+      for (const t of leidos) {
+        const ya = await prisma.telefonoCliente.findUnique({
+          where: { clienteId_numero: { clienteId: cliente.id, numero: t.numero } },
+        });
+        // Lo que una persona confirmo no se pisa con lo que diga el POS.
+        if (ya) continue;
+        await prisma.telefonoCliente.create({
+          data: {
+            clienteId: cliente.id,
+            numero: t.numero,
+            esCelular: esCelular(t.numero),
+            origen: t.origen,
+            comoVenia: t.comoVenia.slice(0, 200),
+            campo: 'POS',
+          },
+        });
+      }
+
+      // El POS tiene columnas de coordenadas, hoy vacias en las 12.833
+      // direcciones. El dia que alguien las llene, entran como una propuesta
+      // mas y alguien las acepta, igual que las del cliente.
+      const lat = crudo.latitud;
+      const lon = crudo.longitud;
+      if (typeof lat === 'number' && typeof lon === 'number' && lat !== 0 && lon !== 0) {
+        const yaHay = await prisma.ubicacionCliente.count({
+          where: { clienteId: cliente.id, origen: 'CAJA', latitud: lat, longitud: lon },
+        });
+        if (yaHay === 0) {
+          await prisma.ubicacionCliente.create({
+            data: {
+              clienteId: cliente.id,
+              latitud: lat,
+              longitud: lon,
+              origen: 'CAJA',
+              estado: 'PROPUESTA',
+              nota: 'Venia en el POS',
+            },
+          });
+          resultado.conUbicacionDelPos += 1;
+        }
+      }
+    } catch (error) {
+      resultado.rechazados.push({
+        clave: String(crudo?.clave ?? '?'),
+        motivo: error instanceof Error ? error.message.slice(0, 120) : 'error inesperado',
+      });
+    }
+  }
+
+  return resultado;
 }

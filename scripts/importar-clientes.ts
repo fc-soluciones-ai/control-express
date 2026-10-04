@@ -53,6 +53,16 @@ const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
 
 const APLICAR = process.argv.includes('--aplicar');
+
+/**
+ * Cargar unicamente los clientes en estado LISTO.
+ *
+ * Son los que tienen nombre, un celular propio que no comparten con otra
+ * ficha, y una direccion que ya sirve: a esos se les puede escribir por
+ * WhatsApp hoy mismo. Los demas entran despues, cuando se les consiga el
+ * telefono o se les confirme el que hay.
+ */
+const SOLO_LISTOS = process.argv.includes('--solo-listos');
 const COLUMNAS_TELEFONO = ['telefono', 'telefono2', 'telefono3', 'telefono4', 'telefono5'] as const;
 
 function argumento(nombre: string): string | null {
@@ -256,6 +266,14 @@ async function main(): Promise<void> {
       `(${Math.round((listos / preparados.length) * 100)}% de la base).`,
   );
 
+  const seleccion = SOLO_LISTOS ? aEscribir.filter((f) => f.estado === 'LISTO') : aEscribir;
+  if (SOLO_LISTOS) {
+    console.log(
+      `\nSolo los LISTO: se cargan ${seleccion.length} de ${aEscribir.length}. ` +
+        `Los otros ${aEscribir.length - seleccion.length} quedan fuera por ahora.`,
+    );
+  }
+
   if (!APLICAR) {
     console.log('\nNada se escribio. Repita con --aplicar.');
     return;
@@ -267,7 +285,7 @@ async function main(): Promise<void> {
   let actualizados = 0;
   let telefonosNuevos = 0;
 
-  for (const fila of aEscribir) {
+  for (const fila of seleccion) {
     const { preparado: c } = fila;
     const datos = {
       nombre: c.nombre,
@@ -310,7 +328,7 @@ async function main(): Promise<void> {
     }
 
     if ((creados + actualizados) % 500 === 0) {
-      console.log(`  ...${creados + actualizados} de ${aEscribir.length}`);
+      console.log(`  ...${creados + actualizados} de ${seleccion.length}`);
     }
   }
 
@@ -329,7 +347,7 @@ async function main(): Promise<void> {
         actualizados,
         telefonosNuevos,
         listos,
-        total: aEscribir.length,
+        total: seleccion.length,
         archivos: [general, domicilio],
       },
     });
