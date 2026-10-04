@@ -1,0 +1,93 @@
+===========================================================================
+ AGENTE DEL POS - Control Express
+===========================================================================
+
+QUE ES
+Un programa chico que lee los pedidos de Soft Restaurant y los manda a
+Control Express, para poder seguir cada entrega y avisarle al cliente.
+
+DONDE VA
+En el servidor del local, el que tiene instalado Soft Restaurant
+(PZLE-SVR-02). En ningun otro lado.
+
+QUE NO HACE
+- No instala nada.
+- No escribe, no borra y no modifica NADA del POS. Solo lee.
+- No pide usuario ni contrasena: entra con la cuenta de Windows del servidor.
+- No abre ningun puerto. El servidor nunca queda expuesto a internet.
+
+
+---------------------------------------------------------------------------
+ PASO 1: COPIAR
+---------------------------------------------------------------------------
+
+Copie esta carpeta completa al servidor. Por ejemplo a:
+
+    C:\nationalsoft\agente
+
+Tienen que quedar juntos los cuatro archivos:
+
+    agente-pos.ps1
+    agente-pos.config.json
+    PROBAR-AGENTE.bat
+    ARRANCAR-AGENTE.bat
+
+
+---------------------------------------------------------------------------
+ PASO 2: PROBAR  (no manda nada)
+---------------------------------------------------------------------------
+
+Doble clic en:   PROBAR-AGENTE.bat
+
+Lee los pedidos y muestra lo que mandaria, SIN mandar nada. Si Windows avisa
+que protegio su PC, elija "Mas informacion" y despues "Ejecutar de todas
+formas".
+
+Tiene que aparecer algo asi:
+
+    Base: pruebas (83665 pedidos). Solo lectura, con la cuenta de Windows.
+    MODO PRUEBA: se leyeron 120 pedidos. No se manda nada.
+
+Copie lo que salga y mandelo. En esa salida el cliente y el telefono salen
+tapados con ***, asi que se puede compartir sin problema.
+
+Si dice que no encontro SQL Server o que ninguna base tiene pedidos, avise:
+no siga al paso 3.
+
+
+---------------------------------------------------------------------------
+ PASO 3: DEJARLO TRABAJANDO
+---------------------------------------------------------------------------
+
+Solo despues de que el paso 2 haya salido bien.
+
+Doble clic en:   ARRANCAR-AGENTE.bat
+
+Se abre una ventana que se queda trabajando y manda los pedidos cada 30
+segundos. NO LA CIERRE mientras el negocio este abierto.
+
+Si se cierra sin querer, no se pierde nada: se vuelve a abrir y el agente
+retoma donde iba.
+
+
+---------------------------------------------------------------------------
+ SI ALGO SALE MAL
+---------------------------------------------------------------------------
+
+Todo lo que hace queda escrito en el archivo:
+
+    agente-pos.registro.txt
+
+Mande ese archivo.
+
+Que se caiga el internet un rato es normal y no es problema: el agente anota
+el error, reintenta solo, y cuando vuelve la conexion manda lo que falto.
+
+
+---------------------------------------------------------------------------
+ IMPORTANTE
+---------------------------------------------------------------------------
+
+El archivo agente-pos.config.json lleva una llave adentro. No lo mande por
+correo, ni por WhatsApp, ni lo copie a otra computadora.
+===========================================================================

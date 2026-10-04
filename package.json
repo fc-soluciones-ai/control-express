@@ -46,7 +46,8 @@
     "dev:pruebas": "tsx scripts/dev-pruebas.ts",
     "demo:clientes": "tsx scripts/base-de-pruebas.ts scripts/demo-clientes.ts",
     "test:whatsapp": "tsx scripts/base-de-pruebas.ts scripts/verificar-whatsapp.ts",
-    "test:pos": "tsx scripts/base-de-pruebas.ts scripts/verificar-pos.ts"
+    "test:pos": "tsx scripts/base-de-pruebas.ts scripts/verificar-pos.ts",
+    "agente:preparar": "tsx scripts/agente-pos/preparar-agente.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

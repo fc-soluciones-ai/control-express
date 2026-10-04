@@ -47,6 +47,24 @@ const VARIABLES: Variable[] = [
   { nombre: 'IMPRESORA_ANCHO_CARACTERES', obligatoria: false, valor: '48' },
   { nombre: 'GEMINI_API_KEY', obligatoria: false, nota: 'lee las fotos de gasolina; ver npm run ia:clave' },
   { nombre: 'ANTHROPIC_API_KEY', obligatoria: false, nota: 'alternativa a Gemini' },
+  {
+    nombre: 'POS_AGENTE_SECRETO',
+    obligatoria: false,
+    nota: 'firma los pedidos que manda el agente del local; ver npm run agente:preparar',
+  },
+  {
+    nombre: 'APP_URL',
+    obligatoria: false,
+    // Los enlaces que se mandan por WhatsApp son absolutos y viven en el
+    // telefono del cliente durante dias: tienen que apuntar al dominio de
+    // verdad, no a la direccion efimera de un despliegue.
+    valor: 'https://control-express.vercel.app',
+    nota: 'la direccion publica, para los enlaces que se mandan a los clientes',
+  },
+  { nombre: 'WHATSAPP_APP_SECRET', obligatoria: false, nota: 'firma los avisos del webhook de Meta' },
+  { nombre: 'WHATSAPP_VERIFY_TOKEN', obligatoria: false, nota: 'da de alta el webhook en Meta' },
+  { nombre: 'WHATSAPP_TOKEN', obligatoria: false, nota: 'para mandar mensajes' },
+  { nombre: 'WHATSAPP_PHONE_NUMBER_ID', obligatoria: false, nota: 'el numero de la pizzeria en Meta' },
 ];
 
 function vercel(argumentos: string[], entrada?: string): string {
