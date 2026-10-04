@@ -10,6 +10,7 @@
 import type { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/db/prisma';
+import { ventaDelPos } from '@/server/services/pos';
 import { normalizarNombre } from '@/lib/excel/columnas';
 import {
   consolidarArchivos,
@@ -392,6 +393,10 @@ export interface EsperadoDeChofer {
   tarjetaEsperada: number;
   sinpeEsperado: number;
   viajesTotales: number;
+  /** De donde salio la cifra: del agente del POS o de los Excel cargados. */
+  origen: 'POS' | 'EXCEL';
+  /** Cuantos pedidos del POS la respaldan. Cero cuando viene del Excel. */
+  pedidosDelPos: number;
   cargas: Array<{
     id: string;
     nombreArchivo: string;
@@ -401,14 +406,42 @@ export interface EsperadoDeChofer {
 }
 
 /**
- * Suma lo que el POS dice que le corresponde a un chofer en un dia operativo,
- * consolidando todos los archivos cargados ese dia (Blanco, Negro, parciales).
+ * Suma lo que el POS dice que le corresponde a un chofer en un dia operativo.
+ *
+ * DOS ORIGENES, NUNCA LOS DOS A LA VEZ
+ *
+ * Primero se mira lo que trajo el agente del local, que lee la tabla cheques
+ * cada treinta segundos. Si ese dia tiene pedidos, mandan ellos y no hace
+ * falta que nadie suba ningun archivo.
+ *
+ * Si no hay pedidos del agente, se usan los Excel cargados a mano,
+ * consolidando los del dia (Blanco, Negro, parciales). Asi los dias viejos
+ * siguen cuadrando igual que siempre, y el dia que el agente este caido
+ * alguien puede subir el archivo como antes.
+ *
+ * Lo que no se hace nunca es sumar los dos: seria cobrarle al repartidor dos
+ * veces la misma venta.
  */
 export async function esperadoDeChofer(
   choferId: string,
   diaOperativo: string,
   cliente: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<EsperadoDeChofer> {
+  const delPos = await ventaDelPos(choferId, diaOperativo, cliente);
+  if (delPos.pedidos > 0) {
+    return {
+      choferId,
+      efectivoEsperado: delPos.efectivoEsperado,
+      tarjetaEsperada: delPos.tarjetaEsperada,
+      sinpeEsperado: delPos.sinpeEsperado,
+      viajesTotales: delPos.viajesTotales,
+      // Sin archivos: la cifra sale del POS en vivo. La pantalla lo dice asi.
+      cargas: [],
+      origen: 'POS',
+      pedidosDelPos: delPos.pedidos,
+    };
+  }
+
   const ventas = await cliente.ventaChoferExcel.findMany({
     where: { choferId, carga: { diaOperativo } },
     include: {
@@ -439,6 +472,8 @@ export async function esperadoDeChofer(
     sinpeEsperado: sinpe,
     viajesTotales: viajes,
     cargas: [...cargasVistas.values()],
+    origen: 'EXCEL',
+    pedidosDelPos: 0,
   };
 }
 

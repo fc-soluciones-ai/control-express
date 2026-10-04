@@ -84,7 +84,11 @@ export async function previsualizarCierre(
     sinpeEsperado: esperado.sinpeEsperado,
     viajesTotales: esperado.viajesTotales,
     sugerenciaEntrega: Math.max(0, esperado.efectivoEsperado - saldo.total),
-    tieneVentasCargadas: esperado.cargas.length > 0,
+    // "Cargadas" ya no significa solo archivos subidos a mano: desde que el
+    // agente lee el POS, un dia puede tener las ventas sin que nadie haya
+    // subido nada. Sin este "o", la pantalla avisaria de un Excel faltante que
+    // ya no hace falta y el cajero aprenderia a ignorar el aviso.
+    tieneVentasCargadas: esperado.cargas.length > 0 || esperado.pedidosDelPos > 0,
     cargas: esperado.cargas,
   };
 }

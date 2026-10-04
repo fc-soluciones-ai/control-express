@@ -23,6 +23,8 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
+import type { Prisma } from '@prisma/client';
+
 import { prisma } from '@/lib/db/prisma';
 import {
   calidadDeDireccion,
@@ -35,6 +37,7 @@ import {
   nombreBuscable,
   type TelefonoLeido,
 } from '@/lib/clientes/normalizar';
+import { rangoDiaOperativo } from '@/lib/fechas';
 import { aCentimos } from '@/lib/money/money';
 import { ErrorNegocio } from '@/server/errores';
 
@@ -100,6 +103,11 @@ export interface PedidoDelPos {
   cancelado?: boolean;
   /** En colones con decimales, tal como lo tiene el POS. */
   total?: number | null;
+  /** El desglose de pago, que es lo que durante anos salio del Excel. */
+  efectivo?: number | null;
+  tarjeta?: number | null;
+  /** La columna "otros" del POS, que en este negocio es SINPE. */
+  otros?: number | null;
 }
 
 /** La clave del POS: serie y folio juntos. */
@@ -228,6 +236,9 @@ export async function sincronizarPedidos(
         // El POS lo manda en colones con decimales; aqui todo el dinero son
         // centimos enteros. Ver lib/money/money.ts.
         total: aCentimos(Number(crudo.total ?? 0)),
+        efectivo: aCentimos(Number(crudo.efectivo ?? 0)),
+        tarjeta: aCentimos(Number(crudo.tarjeta ?? 0)),
+        sinpe: aCentimos(Number(crudo.otros ?? 0)),
         estado: estadoDelPedido({ cancelado: crudo.cancelado, ...marcas }),
         sincronizadoEn: new Date(),
       };
@@ -505,4 +516,77 @@ export async function sincronizarClientes(
   }
 
   return resultado;
+}
+
+// -----------------------------------------------------------------------------
+// Lo que el POS dice que vendio un repartidor
+// -----------------------------------------------------------------------------
+//
+// ESTO REEMPLAZA AL EXCEL DE CADA NOCHE
+//
+// Durante anos, cerrar la caja empezaba con alguien entrando a Soft
+// Restaurant, sacando el reporte de ventas por mesero, guardandolo y
+// subiendolo a esta aplicacion. Todas las noches, a mano, en el peor momento
+// del dia.
+//
+// Ese reporte sale de la tabla cheques, que es exactamente lo que el agente ya
+// esta trayendo cada treinta segundos. El archivo sobra.
+//
+// SE PREFIERE EL POS, PERO EL EXCEL SIGUE SIRVIENDO
+//
+// No se suman los dos: seria contar dos veces. Si para ese dia hay pedidos del
+// agente, mandan ellos; si no hay ninguno, se usa lo que se haya cargado a
+// mano. Asi los dias viejos siguen cuadrando igual que siempre, y el dia que
+// el agente este caido alguien puede subir el archivo como antes.
+
+export interface VentaDelPos {
+  efectivoEsperado: number;
+  tarjetaEsperada: number;
+  sinpeEsperado: number;
+  viajesTotales: number;
+  /** Cuantos pedidos del POS respaldan esta cifra. Cero significa sin datos. */
+  pedidos: number;
+}
+
+/**
+ * Suma los pedidos que el POS le atribuye a un repartidor en un dia operativo.
+ *
+ * El dia operativo no es el dia del calendario: va de las seis de la manana a
+ * las seis de la manana siguiente, porque la pizzeria cierra de madrugada y un
+ * pedido de la una de la manana pertenece a la noche anterior.
+ */
+export async function ventaDelPos(
+  choferId: string,
+  diaOperativo: string,
+  cliente: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<VentaDelPos> {
+  const { desde, hasta } = rangoDiaOperativo(diaOperativo);
+
+  const suma = await cliente.pedido.aggregate({
+    where: {
+      choferId,
+      entroEn: { gte: desde, lt: hasta },
+      // Un pedido cancelado no se cobra, asi que no se le pide al repartidor.
+      cancelado: false,
+    },
+    _sum: { efectivo: true, tarjeta: true, sinpe: true },
+    _count: { _all: true },
+  });
+
+  return {
+    efectivoEsperado: suma._sum.efectivo ?? 0,
+    tarjetaEsperada: suma._sum.tarjeta ?? 0,
+    sinpeEsperado: suma._sum.sinpe ?? 0,
+    viajesTotales: suma._count._all,
+    pedidos: suma._count._all,
+  };
+}
+
+/** Si ese dia hay pedidos del agente, el Excel ya no hace falta. */
+export async function hayPedidosDelPos(
+  diaOperativo: string,
+  cliente: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<boolean> {
+  const { desde, hasta } = rangoDiaOperativo(diaOperativo);
+  return (await cliente.pedido.count({ where: { entroEn: { gte: desde, lt: hasta } } })) > 0;
 }

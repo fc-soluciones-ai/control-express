@@ -21,8 +21,11 @@ import {
   envioValido,
   estadoDelPedido,
   sincronizarPedidos,
+  ventaDelPos,
+  hayPedidosDelPos,
   type PedidoDelPos,
 } from '@/server/services/pos';
+import { esperadoDeChofer } from '@/server/services/cargas';
 import { exigirBaseDePruebas } from './guarda-pruebas';
 
 let fallos = 0;
@@ -211,6 +214,86 @@ async function main(): Promise<void> {
     mensaje = e instanceof Error ? e.message : '';
   }
   comprobar('un lote gigante se rechaza entero', mensaje, 'Maximo 500 pedidos por envio.');
+
+  // ===========================================================================
+  console.log('\n--- Lo que reemplaza al Excel de cada noche ---');
+
+  await prisma.pedido.deleteMany();
+  const dia = '2026-10-04';
+  // El dia operativo va de las 6 de la manana a las 6 de la manana siguiente:
+  // un pedido de la una de la madrugada es de la noche anterior.
+  const delDia: PedidoDelPos[] = [
+    {
+      folio: '900',
+      claveCliente: '008686',
+      idMesero: '12',
+      entroEn: '2026-10-04T19:00:00',
+      esADomicilio: true,
+      total: 10000,
+      efectivo: 10000,
+    },
+    {
+      folio: '901',
+      claveCliente: '008686',
+      idMesero: '12',
+      entroEn: '2026-10-04T20:30:00',
+      esADomicilio: true,
+      total: 8000,
+      efectivo: 0,
+      tarjeta: 8000,
+    },
+    {
+      // Una de la madrugada: pertenece al dia operativo anterior, el 4.
+      folio: '902',
+      claveCliente: '008686',
+      idMesero: '12',
+      entroEn: '2026-10-05T01:15:00',
+      esADomicilio: true,
+      total: 5000,
+      efectivo: 3000,
+      otros: 2000,
+    },
+    {
+      // Cancelado: no se cobra, asi que no se le pide al repartidor.
+      folio: '903',
+      idMesero: '12',
+      entroEn: '2026-10-04T21:00:00',
+      cancelado: true,
+      total: 99000,
+      efectivo: 99000,
+    },
+    {
+      // De otro repartidor: no debe contarse en el de PINITO.
+      folio: '904',
+      idMesero: '10',
+      entroEn: '2026-10-04T19:30:00',
+      total: 7000,
+      efectivo: 7000,
+    },
+  ];
+  await sincronizarPedidos(delDia);
+
+  const venta = await ventaDelPos(pinito.id, dia);
+  comprobar('cuenta los pedidos del dia operativo', venta.pedidos, 3);
+  // 10.000 + 0 + 3.000 = 13.000 colones en efectivo.
+  comprobar('suma el efectivo', venta.efectivoEsperado, 1300000);
+  comprobar('y la tarjeta aparte', venta.tarjetaEsperada, 800000);
+  comprobar('y el sinpe', venta.sinpeEsperado, 200000);
+  comprobar('el cancelado no se le cobra', venta.efectivoEsperado !== 1300000 + 9900000, true);
+
+  const esperado = await esperadoDeChofer(pinito.id, dia);
+  comprobar('el cierre toma la cifra del POS', esperado.origen, 'POS');
+  comprobar('con el mismo efectivo', esperado.efectivoEsperado, 1300000);
+  comprobar('y sin pedir ningun archivo', esperado.cargas.length, 0);
+  comprobar('diciendo cuantos pedidos la respaldan', esperado.pedidosDelPos, 3);
+
+  // Un dia sin pedidos del agente sigue dependiendo del Excel, como siempre.
+  const sinPos = await esperadoDeChofer(pinito.id, '2026-01-01');
+  comprobar('un dia viejo cae al Excel', sinPos.origen, 'EXCEL');
+  comprobar('y ahi no hay nada cargado', sinPos.efectivoEsperado, 0);
+
+  comprobar('hay pedidos del POS ese dia', await hayPedidosDelPos(dia), true);
+  comprobar('y no en uno viejo', await hayPedidosDelPos('2026-01-01'), false);
 
   await limpiar();
   console.log(`\n${fallos === 0 ? 'Todo bien' : `${fallos} fallas`}`);

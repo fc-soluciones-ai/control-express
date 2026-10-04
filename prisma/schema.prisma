@@ -1073,6 +1073,21 @@ model Pedido {
   /// repartidor tiene que cobrar.
   total Int @default(0)
 
+  // --- Como se pago -----------------------------------------------------------
+  //
+  // Es lo que durante anos se saco a mano del Excel de ventas por mesero, todas
+  // las noches, para el cierre de caja. Viene de las mismas columnas de la
+  // tabla cheques que leia ese reporte, asi que el archivo sobra.
+  //
+  // El cierre solo cuadra EFECTIVO: lo demas no pasa por las manos del
+  // repartidor. Tarjeta y sinpe se guardan para los reportes.
+
+  /// Centimos cobrados en efectivo. Es lo unico que el repartidor entrega.
+  efectivo Int @default(0)
+  tarjeta  Int @default(0)
+  /// La columna "otros" del POS, que en este negocio es SINPE.
+  sinpe    Int @default(0)
+
   /// RECIBIDO | EN_COCINA | ASIGNADO | EN_CAMINO | ENTREGADO | CANCELADO
   /// Se deriva de las marcas de arriba al recibirlo. Es lo que ve el cliente.
   estado String

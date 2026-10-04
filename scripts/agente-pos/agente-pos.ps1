@@ -121,6 +121,15 @@ function ComoPedido($fila) {
     return ([datetime]$v).ToString('o')
   }
 
+  # Un campo de dinero vacio no es un error, es un cero. El POS deja en nulo lo
+  # que no se uso: un pedido pagado con tarjeta tiene el efectivo vacio. Sin
+  # esto, convertir a numero revienta y se pierde el pedido entero.
+  $plata = {
+    param($v)
+    if ($null -eq $v -or $v -is [System.DBNull] -or [string]$v -eq '') { return 0 }
+    return [double]$v
+  }
+
   # El POS tiene DOS columnas de cliente y usa una u otra segun como se tomo
   # el pedido. En esta instalacion idclientedomicilio viene vacio y el cliente
   # real esta en idcliente. Se toma la que tenga algo, empezando por la de
@@ -143,7 +152,11 @@ function ComoPedido($fila) {
     cerradoEn     = (& $iso $fila['cierre'])
     esADomicilio  = ([string]$fila['iddireccion']).Trim() -ne ''
     cancelado     = [bool]$fila['cancelado']
-    total         = [double]$fila['total']
+    total         = (& $plata $fila['total'])
+    # El desglose de pago: es lo que durante anos salio del Excel de cada noche.
+    efectivo      = (& $plata $fila['efectivo'])
+    tarjeta       = (& $plata $fila['tarjeta'])
+    otros         = (& $plata $fila['otros'])
   }
 }
 
@@ -245,7 +258,7 @@ if ($Autoprueba) {
 
   # Una fila del POS, con las columnas tal como se llaman alla.
   $t = New-Object System.Data.DataTable
-  foreach ($c in @('folio','seriefolio','idcliente','idclientedomicilio','iddireccion','telefonousadodomicilio','idmesero','cancelado','total')) {
+  foreach ($c in @('folio','seriefolio','idcliente','idclientedomicilio','iddireccion','telefonousadodomicilio','idmesero','cancelado','total','efectivo','tarjeta','otros')) {
     [void]$t.Columns.Add($c)
   }
   foreach ($c in @('fecha','empaquetado','asignacion','salidarepartidor','arriborepartidor','cierre')) {
@@ -255,6 +268,7 @@ if ($Autoprueba) {
   $f['folio'] = '12345'; $f['seriefolio'] = 'A'; $f['idclientedomicilio'] = '008686'
   $f['iddireccion'] = 'D1'; $f['telefonousadodomicilio'] = '87069355'; $f['idmesero'] = '12'
   $f['cancelado'] = $false; $f['total'] = '12500.50'
+  $f['efectivo'] = '12500.50'; $f['tarjeta'] = '0'; $f['otros'] = '0'
   $f['fecha'] = [datetime]'2026-10-04T19:05:00'
   $f['salidarepartidor'] = [datetime]'2026-10-04T19:36:00'
   $t.Rows.Add($f)
@@ -268,12 +282,23 @@ if ($Autoprueba) {
   $f3 = $t.NewRow()
   $f3['folio'] = '555'; $f3['idclientedomicilio'] = ''; $f3['idcliente'] = '003863'
   $f3['iddireccion'] = 'CASA'; $f3['cancelado'] = $false; $f3['total'] = '0'
+  $f3['efectivo'] = '0'; $f3['tarjeta'] = '0'; $f3['otros'] = '0'
   $f3['fecha'] = [datetime]'2026-10-04T18:00:00'
   $t.Rows.Add($f3)
   $p3 = ComoPedido $t.Rows[$t.Rows.Count - 1]
   Comprobar 'si no hay idclientedomicilio se usa idcliente' $p3.claveCliente '003863'
   Comprobar 'y ese tambien conserva sus ceros' ($p3.claveCliente -eq '003863') 'True'
   Comprobar 'el total va con decimales' $p.total '12500.5'
+  # Es lo que durante anos se saco a mano del Excel de ventas por mesero.
+  Comprobar 'el efectivo viaja aparte' $p.efectivo '12500.5'
+  Comprobar 'y la tarjeta tambien' $p.tarjeta '0'
+  # Un pedido pagado con tarjeta deja el efectivo en nulo: es un cero, no un error.
+  $fv = $t.NewRow(); $fv['folio'] = '777'; $fv['cancelado'] = $false
+  $fv['fecha'] = [datetime]'2026-10-04T21:00:00'
+  $t.Rows.Add($fv)
+  $pv = ComoPedido $t.Rows[$t.Rows.Count - 1]
+  Comprobar 'un campo de dinero vacio es cero y no revienta' $pv.efectivo '0'
+  Comprobar 'y el total tambien' $pv.total '0'
   Comprobar 'un pedido con direccion es a domicilio' $p.esADomicilio 'True'
   Comprobar 'las marcas vacias van nulas' ($null -eq $p.empaquetadoEn) 'True'
   Comprobar 'la fecha sale en ISO' ([bool]($p.entroEn -match '^2026-10-04T19:05')) 'True'
@@ -403,7 +428,7 @@ function UnaPasada {
       folio, seriefolio, fecha, empaquetado, asignacion,
       salidarepartidor, arriborepartidor, cierre,
       idcliente, idclientedomicilio, iddireccion, telefonousadodomicilio,
-      idmesero, cancelado, total
+      idmesero, cancelado, total, efectivo, tarjeta, otros
     FROM dbo.cheques
     WHERE fecha >= DATEADD(hour, -6, CONVERT(datetime, '$desde', 120))
     ORDER BY fecha ASC"
