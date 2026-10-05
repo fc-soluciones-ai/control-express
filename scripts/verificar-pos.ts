@@ -21,11 +21,8 @@ import {
   envioValido,
   estadoDelPedido,
   sincronizarPedidos,
-  ventaDelPos,
-  hayPedidosDelPos,
   type PedidoDelPos,
 } from '@/server/services/pos';
-import { esperadoDeChofer } from '@/server/services/cargas';
 import { exigirBaseDePruebas } from './guarda-pruebas';
 
 let fallos = 0;
@@ -273,27 +270,13 @@ async function main(): Promise<void> {
   ];
   await sincronizarPedidos(delDia);
 
-  const venta = await ventaDelPos(pinito.id, dia);
-  comprobar('cuenta los pedidos del dia operativo', venta.pedidos, 3);
-  // 10.000 + 0 + 3.000 = 13.000 colones en efectivo.
-  comprobar('suma el efectivo', venta.efectivoEsperado, 1300000);
-  comprobar('y la tarjeta aparte', venta.tarjetaEsperada, 800000);
-  comprobar('y el sinpe', venta.sinpeEsperado, 200000);
-  comprobar('el cancelado no se le cobra', venta.efectivoEsperado !== 1300000 + 9900000, true);
-
-  const esperado = await esperadoDeChofer(pinito.id, dia);
-  comprobar('el cierre toma la cifra del POS', esperado.origen, 'POS');
-  comprobar('con el mismo efectivo', esperado.efectivoEsperado, 1300000);
-  comprobar('y sin pedir ningun archivo', esperado.cargas.length, 0);
-  comprobar('diciendo cuantos pedidos la respaldan', esperado.pedidosDelPos, 3);
-
-  // Un dia sin pedidos del agente sigue dependiendo del Excel, como siempre.
-  const sinPos = await esperadoDeChofer(pinito.id, '2026-01-01');
-  comprobar('un dia viejo cae al Excel', sinPos.origen, 'EXCEL');
-  comprobar('y ahi no hay nada cargado', sinPos.efectivoEsperado, 0);
-
-  comprobar('hay pedidos del POS ese dia', await hayPedidosDelPos(dia), true);
-  comprobar('y no en uno viejo', await hayPedidosDelPos('2026-01-01'), false);
+  // Los pedidos del dia quedan guardados y ligados a su repartidor. Lo que
+  // antes se comprobaba aqui era la suma de efectivo para el cierre de caja;
+  // esa parte salio del sistema y la suma con ella.
+  const delRepartidor = await prisma.pedido.count({
+    where: { choferId: pinito.id, cancelado: false },
+  });
+  comprobar('los pedidos quedan ligados al repartidor', delRepartidor, 3);
 
   await limpiar();
   console.log(`\n${fallos === 0 ? 'Todo bien' : `${fallos} fallas`}`);

@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '@/lib/db/prisma';
-import { normalizarNombre } from '@/lib/excel/columnas';
+import { normalizarNombre } from '@/lib/texto';
 import { ErrorNegocio } from '@/server/errores';
 import { registrarEvento } from '@/server/services/auditoria';
 import { hashearPin, motivoPinInvalido } from '@/server/services/pin';
@@ -107,23 +107,15 @@ export async function editarChofer(
 }
 
 /**
- * Desactiva un repartidor. Se niega si tiene un turno abierto: desactivarlo
- * dejaria abonos colgando de un turno que ya nadie puede cerrar.
+ * Desactiva un repartidor.
+ *
+ * No se borra: tiene motos asignadas, gastos y evidencia, que son historia de
+ * la flota. Queda inactivo y deja de aparecer donde se elige a alguien.
  */
 export async function desactivarChofer(choferId: string, cajeroId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    const chofer = await tx.chofer.findUnique({
-      where: { id: choferId },
-      include: { turnos: { where: { estado: 'ABIERTO' }, take: 1 } },
-    });
+    const chofer = await tx.chofer.findUnique({ where: { id: choferId } });
     if (!chofer) throw new ErrorNegocio('CHOFER_NO_ENCONTRADO', 'El repartidor no existe.');
-
-    if (chofer.turnos.length > 0) {
-      throw new ErrorNegocio(
-        'TURNO_YA_ABIERTO',
-        `${chofer.nombre} tiene un turno abierto. Cierre su turno antes de desactivarlo.`,
-      );
-    }
 
     await tx.chofer.update({ where: { id: choferId }, data: { estado: 'INACTIVO' } });
 
@@ -172,10 +164,10 @@ export interface ChoferConHistoria {
   fotoUrl: string | null;
   telefono: string | null;
   estado: string;
-  tieneTurnoAbierto: boolean;
-  turnosCerrados: number;
-  /** Suma de faltantes y sobrantes de todos sus cierres, en centimos. */
-  diferenciaAcumulada: number;
+  /** Cuantas motos ha tenido asignadas. */
+  motosAsignadas: number;
+  /** Cuantos gastos de flota registro. */
+  gastosRegistrados: number;
   /** Si tiene PIN para entrar desde su telefono. El PIN nunca sale de aqui. */
   tieneAcceso: boolean;
   /** Bloqueado por intentos fallidos hasta esta hora, si lo esta. */
@@ -189,18 +181,10 @@ export interface ChoferConHistoria {
 export async function listarChoferesConHistoria(): Promise<ChoferConHistoria[]> {
   const choferes = await prisma.chofer.findMany({
     orderBy: [{ estado: 'asc' }, { nombre: 'asc' }],
-    include: {
-      turnos: {
-        select: {
-          estado: true,
-          cierre: { select: { diferencia: true } },
-        },
-      },
-    },
+    include: { _count: { select: { asignaciones: true, gastos: true } } },
   });
 
   return choferes.map((chofer) => {
-    const cerrados = chofer.turnos.filter((t) => t.estado === 'CERRADO');
     return {
       id: chofer.id,
       idMeseroSoftRestaurant: chofer.idMeseroSoftRestaurant,
@@ -208,9 +192,8 @@ export async function listarChoferesConHistoria(): Promise<ChoferConHistoria[]> 
       fotoUrl: chofer.fotoUrl,
       telefono: chofer.telefono,
       estado: chofer.estado,
-      tieneTurnoAbierto: chofer.turnos.some((t) => t.estado === 'ABIERTO'),
-      turnosCerrados: cerrados.length,
-      diferenciaAcumulada: cerrados.reduce((acc, t) => acc + (t.cierre?.diferencia ?? 0), 0),
+      motosAsignadas: chofer._count.asignaciones,
+      gastosRegistrados: chofer._count.gastos,
       tieneAcceso: chofer.pin !== null,
       bloqueadoHasta:
         chofer.bloqueadoHasta && chofer.bloqueadoHasta > new Date() ? chofer.bloqueadoHasta : null,

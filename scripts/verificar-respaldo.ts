@@ -13,7 +13,7 @@ import { copyFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
 import { prisma } from '../src/lib/db/prisma';
-import { normalizarNombre } from '../src/lib/excel/columnas';
+import { normalizarNombre } from '../src/lib/texto';
 import {
   crearRespaldo,
   listarRespaldos,

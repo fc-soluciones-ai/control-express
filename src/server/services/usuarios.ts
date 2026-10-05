@@ -46,7 +46,7 @@ export async function listarUsuarios(): Promise<UsuarioDeCaja[]> {
       estado: true,
       createdAt: true,
       bloqueadoHasta: true,
-      _count: { select: { sesiones: true, abonos: true, cierres: true, arqueos: true } },
+      _count: { select: { sesiones: true, eventos: true } },
     },
   });
 
@@ -59,7 +59,7 @@ export async function listarUsuarios(): Promise<UsuarioDeCaja[]> {
     creadoEn: u.createdAt,
     bloqueadoHasta: u.bloqueadoHasta && u.bloqueadoHasta > ahora ? u.bloqueadoHasta : null,
     sesionesAbiertas: u._count.sesiones,
-    tieneMovimientos: u._count.abonos + u._count.cierres + u._count.arqueos > 0,
+    tieneMovimientos: u._count.eventos > 0,
   }));
 }
 

@@ -1,27 +1,33 @@
 # Control Express
 
-Gestión de efectivo para repartidores de pizzería: recepción de abonos
-parciales durante el turno, cierre de turno conciliado contra los reportes de
-venta por mesero de Soft Restaurant (National Soft), arqueo de caja y tiquetes
-térmicos de 80 mm.
+Tablero de entregas para una pizzería: qué pedidos están sin entregar, cuánto
+lleva esperando cada cliente y quién los lleva. Más la flota de motocicletas y
+la base de clientes con su ubicación exacta.
 
-Pensado para un monitor táctil de mostrador, operado de noche, con el dedo.
+Pensado para un monitor táctil de mostrador, encendido toda la noche, y para el
+teléfono del repartidor.
 
 ---
 
 ## Para qué sirve
 
-Un repartidor sale con pedidos y vuelve con efectivo. Si acumula toda la noche,
-anda con demasiado dinero en la calle. El sistema recibe entregas parciales a
-lo largo del turno, imprime un comprobante de cada una, y al cierre contrasta
-lo recibido contra lo que el punto de venta dice que ese repartidor vendió en
-efectivo.
+El negocio tiene un problema concreto: **los pedidos llegan tarde**. Soft
+Restaurant, el punto de venta, sabe a qué hora entró cada pedido, pero no tiene
+ninguna pantalla que diga cuáles están atrasados ahora mismo. En el mostrador
+eso se descubría cuando el cliente llamaba a reclamar.
 
-```
-diferencia = (abonos parciales + efectivo entregado) − efectivo esperado
-```
+Un agente lee la base del punto de venta cada treinta segundos y empuja los
+pedidos aquí. El tablero los pinta con un semáforo:
 
-Positiva es sobrante, negativa es faltante.
+| Espera | Color |
+|---|---|
+| 0 – 20 min | verde |
+| 21 – 34 min | naranja |
+| 35 – 55 min | rojo |
+| más de 55 min | rojo relleno, parpadeando |
+
+El reloj cuenta **desde que el pedido entró**, no desde que salió la moto: es
+lo que el cliente vive.
 
 ---
 
@@ -31,9 +37,9 @@ Positiva es sobrante, negativa es faltante.
 |---|---|
 | Framework | Next.js 14 (App Router) + TypeScript |
 | Interfaz | Tailwind CSS, objetivos táctiles de 64 px |
-| Base de datos | SQLite con Prisma (portable a PostgreSQL) |
-| Excel | SheetJS, lee el BIFF antiguo de `.xls` que exporta Soft Restaurant |
-| Impresión | ESC/POS por socket TCP al puerto 9100 |
+| Base de datos | PostgreSQL en Supabase, con Prisma |
+| Datos del punto de venta | Agente de PowerShell en el servidor del local, solo lectura |
+| Ubicaciones | WhatsApp Cloud API de Meta |
 
 ---
 
@@ -65,43 +71,54 @@ Para servir a una tablet en la misma red, `npm run dev:red`.
 
 | Comando | Qué hace |
 |---|---|
-| `npm test` | Las 139 comprobaciones automáticas |
-| `npm run demo -- --aplicar` | Prepara una noche de práctica para entrenar |
+| `npm test` | Las 446 comprobaciones automáticas |
+| `npm run test:entregas` | Solo el semáforo y el tablero |
+| `npm run demo` | Levanta una copia de práctica en el puerto 3100 |
 | `npm run db:respaldar` | Copia verificada de la base |
 | `npm run db:restaurar -- --listar` | Ver y restaurar respaldos |
-| `npm run db:repartidores` | Sincronizar el padrón de repartidores |
-| `npm run print:probar` | Ver las cuatro plantillas de tiquete sin hardware |
-| `npm run ejemplos` | Generar reportes de Excel de prueba |
-| `npm run pin` | Cambiar el PIN de un cajero |
-| `npm run datos:exportar` | Sacar los datos para mudar de motor |
+| `npm run db:volcar` | Volcado JSON de todas las tablas |
+| `npm run db:vaciar` | Deja la base lista, conservando a las personas |
+| `npm run pin` | Cambiar el PIN de un usuario |
+| `npm run agente:preparar` | Arma el agente para copiarlo al servidor del local |
 
 ---
 
 ## Decisiones que conviene conocer antes de tocar el código
 
+**El semáforo vive en un solo archivo.** Los cortes de minutos están en
+`src/lib/entregas/espera.ts` y en ningún componente. El mismo semáforo aparece
+en el tablero y en la pantalla del repartidor; si cada pantalla decidiera sus
+cortes, un pedido saldría naranja en una y rojo en la otra.
+
+**El tiempo se mide contra el reloj del servidor.** El equipo del mostrador
+puede estar desfasado media hora sin que nadie lo note. El tablero mide el
+desfase en cada lectura y corrige.
+
 **El dinero es un entero en céntimos, nunca un decimal.** El factor sale del
-exponente ISO 4217 de la moneda, no de un `× 100` reflejo. Un arqueo con
-aritmética de punto flotante acumula errores que después nadie puede explicar.
+exponente ISO 4217 de la moneda, no de un `× 100` reflejo. Las coordenadas sí
+son decimales: la regla es del dinero, no de todo número.
 
-**No se guardan saldos acumulados.** El saldo de un repartidor y el efectivo en
-caja son sumas derivadas. Un contador denormalizado sería una segunda fuente de
-verdad que se desincroniza en cuanto se anula un abono.
+**El día operativo corta a las 06:00.** La pizzería cierra de madrugada, así
+que un pedido de la una de la mañana pertenece a la noche anterior.
 
-**Los registros de dinero no se editan ni se borran.** Una corrección se asienta
-como un movimiento de reverso enlazado al original. La bitácora es append-only.
+**No hay exportación de nada.** Ni Excel, ni CSV, ni PDF. Los datos están en la
+base y la base se consulta. Un archivo exportado nace desactualizado y queda en
+el disco del mostrador con los teléfonos de los clientes.
 
-**"Activo" y "en turno" son cosas distintas.** Activo significa que el
-repartidor trabaja en el negocio; en turno, que trabaja esta noche. El
-dashboard muestra solo lo segundo.
+**Los hechos no se editan ni se borran.** La bitácora es append-only; una
+corrección es un evento nuevo.
 
-La documentación completa está en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)
-el procedimiento de respaldo en [docs/RESPALDOS.md](docs/RESPALDOS.md), el
-paso a PostgreSQL en [docs/SUPABASE.md](docs/SUPABASE.md) y el despliegue en
+> Este sistema empezó siendo el cierre de caja de la pizzería. Esa parte se
+> quitó completa en octubre de 2026, por decisión del negocio.
+
+La documentación completa está en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md),
+el procedimiento de respaldo en [docs/RESPALDOS.md](docs/RESPALDOS.md), la base
+de datos en [docs/SUPABASE.md](docs/SUPABASE.md) y el despliegue en
 [docs/VERCEL.md](docs/VERCEL.md).
 
 ---
 
 ## Qué no está en el repositorio
 
-El archivo `.env`, las bases de datos, los respaldos y las fotos de los
-repartidores quedan fuera por el `.gitignore`. Son datos del negocio, no código.
+El archivo `.env`, los respaldos, los volcados y las fotos de los repartidores
+quedan fuera por el `.gitignore`. Son datos del negocio, no código.

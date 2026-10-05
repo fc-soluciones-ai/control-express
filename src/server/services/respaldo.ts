@@ -33,13 +33,12 @@ import { registrarEvento } from '@/server/services/auditoria';
 const TABLAS_VERIFICADAS = [
   'cajeros',
   'choferes',
-  'turnos_chofer',
-  'abonos_efectivo',
-  'cargas_excel',
-  'ventas_chofer_excel',
-  'cierres_chofer',
-  'arqueos_caja',
-  'tiquetes',
+  'motocicletas',
+  'asignaciones_moto',
+  'registros_mantenimiento',
+  'clientes',
+  'ubicaciones_cliente',
+  'pedidos',
   'eventos_auditoria',
 ] as const;
 
@@ -47,13 +46,12 @@ const TABLAS_VERIFICADAS = [
 const CLAVE_POR_TABLA: Record<string, string> = {
   cajeros: 'cajeros',
   choferes: 'choferes',
-  turnos_chofer: 'turnos',
-  abonos_efectivo: 'abonos',
-  cargas_excel: 'cargasExcel',
-  ventas_chofer_excel: 'ventasChoferExcel',
-  cierres_chofer: 'cierres',
-  arqueos_caja: 'arqueos',
-  tiquetes: 'tiquetes',
+  motocicletas: 'motocicletas',
+  asignaciones_moto: 'asignaciones',
+  registros_mantenimiento: 'gastos',
+  clientes: 'clientes',
+  ubicaciones_cliente: 'ubicaciones',
+  pedidos: 'pedidos',
   eventos_auditoria: 'eventos',
 };
 
@@ -266,13 +264,6 @@ async function crearRespaldoLogico(
     motor: 'postgresql',
     cajeros: await prisma.cajero.findMany(),
     choferes: await prisma.chofer.findMany(),
-    cargasExcel: await prisma.cargaExcel.findMany(),
-    turnos: await prisma.turnoChofer.findMany(),
-    abonos: await prisma.abonoEfectivo.findMany(),
-    ventasChoferExcel: await prisma.ventaChoferExcel.findMany(),
-    arqueos: await prisma.arqueoCaja.findMany(),
-    cierres: await prisma.cierreChofer.findMany(),
-    tiquetes: await prisma.tiquete.findMany(),
     eventos: await prisma.eventoAuditoria.findMany(),
     // Las sesiones no se respaldan: son credenciales vivas y caducan solas.
   };

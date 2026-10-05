@@ -17,7 +17,7 @@
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { BarraDeTabla, type ChipActivo } from '@/components/BarraDeTabla';
 import { FiltroEnlace } from '@/components/FiltroEnlace';
@@ -28,7 +28,6 @@ import { telefonoBonito } from '@/lib/clientes/normalizar';
 import {
   accionAceptarUbicacion,
   accionArmarTanda,
-  accionDescargarTanda,
   accionMarcarEnviada,
   accionRechazarUbicacion,
 } from '@/app/clientes/acciones';
@@ -141,29 +140,20 @@ export function PanelClientes({
   porRevisar,
 }: Props) {
   const ruta = usePathname();
+  const router = useRouter();
   const parametros = useSearchParams();
   const [cuantas, setCuantas] = useState(150);
   const [trabajando, setTrabajando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /** El archivo llega en base64 y se arma aqui, sin tocar el disco del servidor. */
-  const bajar = useCallback((nombreArchivo: string, base64: string) => {
-    const binario = atob(base64);
-    const bytes = new Uint8Array(binario.length);
-    for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
-    const url = URL.createObjectURL(
-      new Blob([bytes], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      }),
-    );
-    const enlace = document.createElement('a');
-    enlace.href = url;
-    enlace.download = nombreArchivo;
-    enlace.click();
-    URL.revokeObjectURL(url);
-  }, []);
-
+  /**
+   * Arma la tanda y abre su pantalla de envio.
+   *
+   * Antes esto bajaba un Excel. Ahora lleva a la lista en pantalla: los
+   * enlaces de WhatsApp se abren con un toque y no queda un archivo con los
+   * telefonos de ciento cincuenta personas en el disco del mostrador.
+   */
   const armar = useCallback(async () => {
     setTrabajando(true);
     setError(null);
@@ -174,22 +164,8 @@ export function PanelClientes({
       setError(r.mensaje);
       return;
     }
-    bajar(r.datos.nombreArchivo, r.datos.base64);
-    setAviso(
-      `Tanda ${r.datos.tanda} armada con ${r.datos.cuantas} mensajes. ` +
-        'Mandelos desde el Excel y despues marque la tanda como enviada.',
-    );
-  }, [bajar, cuantas]);
-
-  const descargar = useCallback(
-    async (tanda: number) => {
-      setError(null);
-      const r = await accionDescargarTanda(tanda);
-      if (!r.ok) setError(r.mensaje);
-      else bajar(r.datos.nombreArchivo, r.datos.base64);
-    },
-    [bajar],
-  );
+    router.push(`/clientes/tanda/${r.datos.tanda}`);
+  }, [cuantas, router]);
 
   const marcarEnviada = useCallback(async (tanda: number) => {
     setTrabajando(true);
@@ -279,8 +255,9 @@ export function PanelClientes({
         <h2 className="font-bold">Mandar los mensajes</h2>
         <p className="mt-1 text-sm text-slate-400">
           El sistema no manda los mensajes: arma la lista con el texto y el enlace de cada
-          cliente, y los manda una persona desde WhatsApp. Mandar miles de mensajes de golpe
-          hace que Meta bloquee el numero de la pizzeria, y eso se lleva tambien los pedidos.
+          cliente, y los manda una persona desde WhatsApp, tocando fila por fila. Mandar miles
+          de mensajes de golpe hace que Meta bloquee el numero de la pizzeria, y eso se lleva
+          tambien los pedidos.
         </p>
 
         {sinEnviar !== null && (
@@ -290,13 +267,12 @@ export function PanelClientes({
               enviada.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => descargar(sinEnviar)}
-                className="boton-tactil border border-borde bg-panelClaro px-4 text-sm text-slate-200"
+              <Link
+                href={`/clientes/tanda/${sinEnviar}`}
+                className="boton-tactil flex items-center border border-borde bg-panelClaro px-4 text-sm text-slate-200"
               >
-                Bajar la lista otra vez
-              </button>
+                Ver la lista y mandarlos
+              </Link>
               <button
                 type="button"
                 onClick={() => marcarEnviada(sinEnviar)}

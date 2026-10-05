@@ -203,7 +203,6 @@ function Ficha({
 }) {
   const [confirmarQuitar, setConfirmarQuitar] = useState(false);
   const activo = chofer.estado === 'ACTIVO';
-  const clasificacion = clasificarDiferencia(chofer.diferenciaAcumulada);
 
   return (
     <li className={`rounded-2xl border border-borde bg-fondo p-4 ${activo ? '' : 'opacity-60'}`}>
@@ -227,30 +226,14 @@ function Ficha({
             Mesero #{chofer.idMeseroSoftRestaurant}
             {chofer.telefono ? ` · ${chofer.telefono}` : ''}
           </p>
-          {chofer.tieneTurnoAbierto ? (
-            <p className="mt-1 inline-block rounded-lg bg-entrada/15 px-2 py-1 text-xs text-entrada">
-              Turno abierto
-            </p>
-          ) : null}
         </div>
 
         <div className="text-right">
           <p className="text-xs uppercase tracking-wide text-slate-500">
-            {chofer.turnosCerrados} turno{chofer.turnosCerrados === 1 ? '' : 's'} cerrado
-            {chofer.turnosCerrados === 1 ? '' : 's'}
+            {chofer.motosAsignadas} moto{chofer.motosAsignadas === 1 ? '' : 's'}
           </p>
-          <p
-            className={`cifra font-bold ${
-              clasificacion === 'CUADRADO'
-                ? 'text-slate-400'
-                : clasificacion === 'FALTANTE'
-                  ? 'text-alerta'
-                  : 'text-aviso'
-            }`}
-          >
-            {clasificacion === 'CUADRADO'
-              ? 'Sin diferencias'
-              : `${clasificacion} ${formatearMoneda(Math.abs(chofer.diferenciaAcumulada))}`}
+          <p className="text-sm text-slate-400">
+            {chofer.gastosRegistrados} gasto{chofer.gastosRegistrados === 1 ? '' : 's'} de flota
           </p>
         </div>
       </div>
@@ -270,11 +253,8 @@ function Ficha({
               ? 'border-alerta/50 bg-alerta/10 text-alerta'
               : 'border-entrada/50 bg-entrada/10 text-entrada'
           } disabled:opacity-40`}
-          disabled={trabajando || (activo && chofer.tieneTurnoAbierto)}
+          disabled={trabajando}
           onClick={alCambiarEstado}
-          title={
-            activo && chofer.tieneTurnoAbierto ? 'Cierre su turno antes de desactivarlo' : undefined
-          }
         >
           {trabajando ? '...' : activo ? 'Desactivar' : 'Reactivar'}
         </button>

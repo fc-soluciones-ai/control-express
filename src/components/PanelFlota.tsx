@@ -11,7 +11,6 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
-import { accionExportarGastos } from '@/app/motos/acciones';
 import { BarraDeTabla } from '@/components/BarraDeTabla';
 import { Paginacion } from '@/components/Paginacion';
 import { formatearFechaHora } from '@/lib/fechas';
@@ -69,46 +68,6 @@ export function PanelFlota({
       router.replace(`${ruta}?${nuevos.toString()}`);
     },
     [parametros, ruta, router],
-  );
-
-  const [exportando, setExportando] = useState<'EXCEL' | 'CSV' | null>(null);
-  const [avisoExportar, setAvisoExportar] = useState<string | null>(null);
-
-  const exportar = useCallback(
-    async (formato: 'EXCEL' | 'CSV') => {
-      setExportando(formato);
-      setAvisoExportar(null);
-      const respuesta = await accionExportarGastos(
-        {
-          placa: filtros.placa || undefined,
-          desde: filtros.desde || undefined,
-          hasta: filtros.hasta || undefined,
-          categoria: filtros.categoria || undefined,
-          buscar: parametros.get('buscar') ?? undefined,
-        },
-        formato,
-        descripcion,
-      );
-      setExportando(null);
-      if (!respuesta.ok) {
-        setAvisoExportar(respuesta.mensaje);
-        return;
-      }
-
-      // El archivo llega en base64 y se arma en el navegador: asi no hay que
-      // escribirlo en el disco de la caja ni limpiarlo despues.
-      const binario = atob(respuesta.datos.base64);
-      const bytes = new Uint8Array(binario.length);
-      for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
-      const url = URL.createObjectURL(new Blob([bytes]));
-      const enlace = document.createElement('a');
-      enlace.href = url;
-      enlace.download = respuesta.datos.nombreArchivo;
-      enlace.click();
-      URL.revokeObjectURL(url);
-      setAvisoExportar(`Descargado ${respuesta.datos.nombreArchivo}`);
-    },
-    [descripcion, filtros, parametros],
   );
 
   // Los filtros puestos, como etiquetas con su equis. Un filtro que no se ve
@@ -284,31 +243,7 @@ export function PanelFlota({
       <section className="tarjeta p-5">
         <h2 className="text-lg font-bold">Movimientos</h2>
         <div className="mt-4 print:hidden">
-          <BarraDeTabla
-            buscaPor="bomba, taller, factura o nota"
-            chips={chips}
-            acciones={
-              <>
-                <button
-                  type="button"
-                  disabled={exportando !== null}
-                  onClick={() => void exportar('EXCEL')}
-                  className="boton-tactil shrink-0 border border-borde bg-panelClaro px-5 text-slate-200 disabled:opacity-40"
-                >
-                  {exportando === 'EXCEL' ? 'Generando...' : '📊 Excel'}
-                </button>
-                <button
-                  type="button"
-                  disabled={exportando !== null}
-                  onClick={() => void exportar('CSV')}
-                  className="boton-tactil shrink-0 border border-borde bg-panelClaro px-5 text-slate-200 disabled:opacity-40"
-                >
-                  {exportando === 'CSV' ? 'Generando...' : '📄 CSV'}
-                </button>
-              </>
-            }
-          />
-          {avisoExportar ? <p className="mt-2 text-sm text-slate-400">{avisoExportar}</p> : null}
+          <BarraDeTabla buscaPor="bomba, taller, factura o nota" chips={chips} />
         </div>
         {historial.length === 0 ? (
           <p className="mt-8 text-center text-slate-500">

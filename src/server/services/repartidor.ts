@@ -6,7 +6,13 @@
  * y "ve lo de cualquiera que sepa cambiar un numero en la direccion".
  *
  * No hay nada que escriba en este archivo, y es a proposito: el repartidor
- * consulta, no registra. El dinero lo recibe la caja y lo firma un usuario.
+ * consulta. Lo que registra, cuando llegue su pantalla de entregas, va a ir en
+ * otro modulo y con su propia firma.
+ *
+ * Esto mostraba lo que habia entregado de efectivo en su turno. Al quitarse
+ * todo lo contable, lo que le sirve de verdad es lo mismo que necesita para
+ * trabajar: que moto trae, que le falta a esa moto, y cuantos pedidos lleva
+ * hoy.
  */
 
 import { diaOperativoDe, rangoDiaOperativo } from '@/lib/fechas';
@@ -15,17 +21,18 @@ import { alertasDeFlota, type AlertaMoto } from '@/server/services/mantenimiento
 
 export interface ResumenDelRepartidor {
   diaOperativo: string;
-  /** Hay un turno abierto ahora mismo. */
-  enTurno: boolean;
-  /** Centimos entregados en el turno abierto, o cero si no hay turno. */
-  entregadoEnTurno: number;
-  cantidadAbonos: number;
-  /** Centimos entregados en todo el dia operativo, turnos cerrados incluidos. */
-  entregadoHoy: number;
-  /** Cada entrega del turno, de la mas reciente a la mas vieja. */
-  entregas: Array<{ id: string; monto: number; hora: Date; anulado: boolean }>;
-  /** Lo que el POS dice que vendio hoy, si ya se importo el Excel. */
-  ventas: { importe: number; efectivo: number; viajes: number } | null;
+  /** Cuantos pedidos le atribuye el POS hoy. */
+  pedidosHoy: number;
+  /** De esos, cuantos ya marco como entregados. */
+  entregadosHoy: number;
+  /** Los que todavia tiene en la calle, del mas viejo al mas nuevo. */
+  enCamino: Array<{
+    id: string;
+    folio: string;
+    cliente: string | null;
+    direccion: string | null;
+    salioEn: Date | null;
+  }>;
   /** Su moto de hoy, si trae alguna. */
   moto: {
     placa: string;
@@ -38,39 +45,27 @@ export interface ResumenDelRepartidor {
   } | null;
 }
 
-export async function resumenDelRepartidor(
-  choferId: string,
-): Promise<ResumenDelRepartidor> {
+export async function resumenDelRepartidor(choferId: string): Promise<ResumenDelRepartidor> {
   const dia = diaOperativoDe();
+  // El dia operativo no es el del calendario: va de las seis de la manana a
+  // las seis de la manana siguiente, porque la pizzeria cierra de madrugada.
   const { desde, hasta } = rangoDiaOperativo(dia);
+  const delDia = { choferId, entroEn: { gte: desde, lt: hasta }, cancelado: false };
 
-  const turnoAbierto = await prisma.turnoChofer.findFirst({
-    where: { choferId, estado: 'ABIERTO' },
-    include: {
-      abonos: {
-        orderBy: { timestamp: 'desc' },
-        select: { id: true, montoAbonado: true, timestamp: true, anuladoPorId: true },
-      },
-    },
-  });
-
-  // El total del dia suma todos los turnos de la jornada, no solo el abierto:
-  // si al repartidor ya le cerraron uno y volvio a salir, lo entregado antes
-  // sigue siendo suyo.
-  const delDia = await prisma.abonoEfectivo.aggregate({
-    where: { turno: { choferId }, timestamp: { gte: desde, lt: hasta } },
-    _sum: { montoAbonado: true },
-  });
-
-  const venta = await prisma.ventaChoferExcel.aggregate({
-    where: { choferId, carga: { diaOperativo: dia } },
-    _sum: { importeTotal: true, efectivo: true, viajes: true },
-  });
-
-  const asignacion = await prisma.asignacionMoto.findFirst({
-    where: { choferId, fechaFin: null },
-    include: { moto: true },
-  });
+  const [pedidosHoy, entregadosHoy, enCamino, asignacion] = await Promise.all([
+    prisma.pedido.count({ where: delDia }),
+    prisma.pedido.count({ where: { ...delDia, estado: 'ENTREGADO' } }),
+    prisma.pedido.findMany({
+      where: { ...delDia, estado: 'EN_CAMINO' },
+      orderBy: { salioEn: 'asc' },
+      take: 20,
+      include: { cliente: { select: { nombre: true, direccionTexto: true } } },
+    }),
+    prisma.asignacionMoto.findFirst({
+      where: { choferId, fechaFin: null },
+      include: { moto: true },
+    }),
+  ]);
 
   let moto: ResumenDelRepartidor['moto'] = null;
   if (asignacion) {
@@ -86,32 +81,19 @@ export async function resumenDelRepartidor(
     };
   }
 
-  // Los abonos anulados se reconocen por tener un reverso enlazado; el reverso
-  // en si es la fila de monto negativo y no se muestra como una entrega mas.
-  const entregas = (turnoAbierto?.abonos ?? [])
-    .filter((a) => a.montoAbonado > 0)
-    .map((a) => ({
-      id: a.id,
-      monto: a.montoAbonado,
-      hora: a.timestamp,
-      anulado: a.anuladoPorId !== null,
-    }));
-
   return {
     diaOperativo: dia,
-    enTurno: Boolean(turnoAbierto),
-    entregadoEnTurno: (turnoAbierto?.abonos ?? []).reduce((t, a) => t + a.montoAbonado, 0),
-    cantidadAbonos: entregas.filter((e) => !e.anulado).length,
-    entregadoHoy: delDia._sum.montoAbonado ?? 0,
-    entregas,
-    ventas:
-      venta._sum.importeTotal === null
-        ? null
-        : {
-            importe: venta._sum.importeTotal ?? 0,
-            efectivo: venta._sum.efectivo ?? 0,
-            viajes: venta._sum.viajes ?? 0,
-          },
+    pedidosHoy,
+    entregadosHoy,
+    enCamino: enCamino.map((p) => ({
+      id: p.id,
+      folio: p.folio,
+      // Puede no estar ligado todavia: el cliente del POS entra en la
+      // siguiente pasada del agente.
+      cliente: p.cliente?.nombre ?? null,
+      direccion: p.cliente?.direccionTexto ?? null,
+      salioEn: p.salioEn,
+    })),
     moto,
   };
 }

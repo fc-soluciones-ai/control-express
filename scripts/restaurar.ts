@@ -19,7 +19,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 
 import { cargarEnv } from './entorno';
-import { importarDesdeArchivo } from './importar-datos';
+import { cargarDesdeArchivo } from './cargar-volcado';
 import { prisma } from '../src/lib/db/prisma';
 import { esErrorNegocio } from '../src/server/errores';
 import {
@@ -71,7 +71,7 @@ async function restaurarLogico(origen: string): Promise<void> {
 
   // Se lee el archivo antes de tocar nada: descubrir que esta corrupto
   // despues de vaciar las tablas seria el peor momento posible.
-  const vista = await importarDesdeArchivo(origen, { aplicar: false });
+  const vista = await cargarDesdeArchivo(origen, { aplicar: false });
   const filas = Object.values(vista.totales).reduce((a, b) => a + b, 0);
   console.log(`\nEl archivo se leyo completo: ${filas} fila(s).\n`);
 
@@ -93,23 +93,30 @@ async function restaurarLogico(origen: string): Promise<void> {
   // El orden es el inverso al de las llaves foraneas.
   await prisma.sesion.deleteMany();
   await prisma.eventoAuditoria.deleteMany();
-  await prisma.tiquete.deleteMany();
-  await prisma.cierreChofer.deleteMany();
-  await prisma.arqueoCaja.deleteMany();
-  await prisma.abonoEfectivo.deleteMany();
-  await prisma.turnoChofer.deleteMany();
-  await prisma.ventaChoferExcel.deleteMany();
-  await prisma.cargaExcel.deleteMany();
+  await prisma.pedido.deleteMany();
+  await prisma.mensajeUbicacion.deleteMany();
+  await prisma.ubicacionCliente.deleteMany();
+  await prisma.solicitudUbicacion.deleteMany();
+  await prisma.telefonoCliente.deleteMany();
+  await prisma.cliente.deleteMany();
+  await prisma.lecturaFoto.deleteMany();
+  await prisma.evidencia.deleteMany();
+  await prisma.registroMantenimiento.deleteMany();
+  await prisma.asignacionMoto.deleteMany();
+  await prisma.motocicleta.deleteMany();
+  await prisma.fotoChofer.deleteMany();
   await prisma.chofer.deleteMany();
   await prisma.cajero.deleteMany();
 
   console.log('Cargando el respaldo...');
-  await importarDesdeArchivo(origen, { aplicar: true, silencioso: true });
+  await cargarDesdeArchivo(origen, { aplicar: true, silencioso: true });
 
   console.log('\nRestauracion completada. Comprobacion:');
   console.log(`  cajeros:  ${await prisma.cajero.count()}`);
   console.log(`  choferes: ${await prisma.chofer.count()}`);
-  console.log(`  abonos:   ${await prisma.abonoEfectivo.count()}`);
+  console.log(`  motos:    ${await prisma.motocicleta.count()}`);
+  console.log(`  clientes: ${await prisma.cliente.count()}`);
+  console.log(`  pedidos:  ${await prisma.pedido.count()}`);
   console.log('\nLas sesiones no se restauran: vuelva a entrar con su PIN.');
 }
 

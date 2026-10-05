@@ -4,9 +4,14 @@
  *   npm run db:vaciar                 (muestra que borraria)
  *   npm run db:vaciar -- --aplicar
  *
- * Borra los movimientos y la flota de prueba. CONSERVA los usuarios de caja y
- * los repartidores con su PIN y su foto: son las personas del negocio, no
- * datos de prueba.
+ * Borra los pedidos, los clientes, la flota y la bitacora. CONSERVA los
+ * usuarios del sistema y los repartidores con su PIN y su foto: son las
+ * personas del negocio, no datos de prueba.
+ *
+ * Los clientes y los pedidos se borran sin miedo porque no nacen aqui: el
+ * agente los vuelve a traer de la base del POS en la siguiente pasada. Lo
+ * unico que no vuelve son las ubicaciones que la gente mando por WhatsApp, y
+ * por eso el volcado previo no es opcional.
  *
  * Antes de borrar nada escribe un volcado JSON de TODAS las tablas en
  * storage/vaciados/, que git ignora. No es un respaldo del motor (ver
@@ -44,13 +49,12 @@ async function volcar(): Promise<string> {
     choferes: await prisma.chofer.findMany(),
     fotosChofer: enBase64(await prisma.fotoChofer.findMany()),
     sesiones: await prisma.sesion.findMany(),
-    cargasExcel: await prisma.cargaExcel.findMany(),
-    turnos: await prisma.turnoChofer.findMany(),
-    abonos: await prisma.abonoEfectivo.findMany(),
-    ventasChoferExcel: await prisma.ventaChoferExcel.findMany(),
-    arqueos: await prisma.arqueoCaja.findMany(),
-    cierres: await prisma.cierreChofer.findMany(),
-    tiquetes: await prisma.tiquete.findMany(),
+    clientes: await prisma.cliente.findMany(),
+    telefonos: await prisma.telefonoCliente.findMany(),
+    solicitudes: await prisma.solicitudUbicacion.findMany(),
+    ubicaciones: await prisma.ubicacionCliente.findMany(),
+    mensajes: await prisma.mensajeUbicacion.findMany(),
+    pedidos: await prisma.pedido.findMany(),
     motocicletas: await prisma.motocicleta.findMany(),
     asignaciones: await prisma.asignacionMoto.findMany(),
     gastos: await prisma.registroMantenimiento.findMany(),
@@ -75,13 +79,12 @@ async function main(): Promise<void> {
     ['gastos de flota', () => prisma.registroMantenimiento.deleteMany()],
     ['asignaciones de moto', () => prisma.asignacionMoto.deleteMany()],
     ['motocicletas', () => prisma.motocicleta.deleteMany()],
-    ['tiquetes', () => prisma.tiquete.deleteMany()],
-    ['cierres', () => prisma.cierreChofer.deleteMany()],
-    ['arqueos', () => prisma.arqueoCaja.deleteMany()],
-    ['abonos', () => prisma.abonoEfectivo.deleteMany()],
-    ['ventas del Excel', () => prisma.ventaChoferExcel.deleteMany()],
-    ['turnos', () => prisma.turnoChofer.deleteMany()],
-    ['cargas de Excel', () => prisma.cargaExcel.deleteMany()],
+    ['pedidos', () => prisma.pedido.deleteMany()],
+    ['mensajes de WhatsApp', () => prisma.mensajeUbicacion.deleteMany()],
+    ['ubicaciones', () => prisma.ubicacionCliente.deleteMany()],
+    ['solicitudes de ubicacion', () => prisma.solicitudUbicacion.deleteMany()],
+    ['telefonos de cliente', () => prisma.telefonoCliente.deleteMany()],
+    ['clientes', () => prisma.cliente.deleteMany()],
     ['bitacora', () => prisma.eventoAuditoria.deleteMany()],
   ] as const;
 
@@ -91,13 +94,12 @@ async function main(): Promise<void> {
     gastos: await prisma.registroMantenimiento.count(),
     asignaciones: await prisma.asignacionMoto.count(),
     motocicletas: await prisma.motocicleta.count(),
-    tiquetes: await prisma.tiquete.count(),
-    cierres: await prisma.cierreChofer.count(),
-    arqueos: await prisma.arqueoCaja.count(),
-    abonos: await prisma.abonoEfectivo.count(),
-    ventasExcel: await prisma.ventaChoferExcel.count(),
-    turnos: await prisma.turnoChofer.count(),
-    cargas: await prisma.cargaExcel.count(),
+    pedidos: await prisma.pedido.count(),
+    mensajes: await prisma.mensajeUbicacion.count(),
+    ubicaciones: await prisma.ubicacionCliente.count(),
+    solicitudes: await prisma.solicitudUbicacion.count(),
+    telefonosCliente: await prisma.telefonoCliente.count(),
+    clientes: await prisma.cliente.count(),
     bitacora: await prisma.eventoAuditoria.count(),
   };
   console.log('Se borraria:');

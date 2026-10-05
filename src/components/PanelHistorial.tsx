@@ -1,29 +1,27 @@
 'use client';
 
 /**
- * Modulo 5: historial, auditoria y reporteria.
+ * Historial y auditoria.
  *
- * Los filtros viven en la URL, no en el estado del componente. Asi el cajero
- * puede dejar la pantalla abierta en "Tono, ultimos 4 dias" y recargar sin
- * perderla, y el supervisor puede pasarle el enlace exacto a otro.
+ * Los filtros viven en la URL, no en el estado del componente. Asi se puede
+ * dejar la pantalla abierta en "Tono, ultimos 4 dias" y recargar sin perderla,
+ * y el supervisor puede pasarle el enlace exacto a otro.
+ *
+ * Antes esta pantalla abria con ocho metricas de dinero y dos botones de
+ * exportar. Ya no hay cierres que sumar ni archivos que generar: lo que queda
+ * es la lista de hechos, que es para lo que se consulta de verdad.
  */
 
 import { useCallback, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
-import {
-  accionExportarExcel,
-  accionPrevisualizarTiquete,
-  accionReimprimir,
-} from '@/app/historial/acciones';
 import { formatearFechaHora } from '@/lib/fechas';
-import { clasificarDiferencia, esClaveDeDinero, formatearMoneda } from '@/lib/money/money';
-import type { FilaHistorial, MetricasHistorial } from '@/server/services/historial';
+import { esClaveDeDinero, formatearMoneda } from '@/lib/money/money';
+import type { FilaHistorial } from '@/server/services/historial';
 
 interface Props {
   filas: FilaHistorial[];
-  metricas: MetricasHistorial;
   hayMas: boolean;
   opciones: {
     choferes: Array<{ id: string; nombre: string }>;
@@ -40,40 +38,54 @@ interface Props {
 }
 
 const NOMBRE_EVENTO: Record<string, string> = {
-  ABONO: 'Abono parcial',
-  ABONO_ANULADO: 'Abono anulado',
-  CARGA_EXCEL: 'Carga de Excel',
-  CIERRE_CHOFER: 'Cierre de turno',
-  ARQUEO: 'Arqueo de caja',
   CHOFER_CREADO: 'Alta de repartidor',
   CHOFER_EDITADO: 'Edicion de repartidor',
   CHOFER_DESACTIVADO: 'Baja de repartidor',
-  REIMPRESION: 'Reimpresion',
-  LOGIN: 'Entrada a la caja',
+  MOTO_CREADA: 'Alta de moto',
+  MOTO_EDITADA: 'Edicion de moto',
+  MOTO_ESTADO: 'Cambio de estado de moto',
+  MOTO_ASIGNADA: 'Moto asignada',
+  MOTO_LIBERADA: 'Moto liberada',
+  MANTENIMIENTO: 'Gasto o mantenimiento',
+  EVIDENCIA: 'Evidencia',
+  LOGIN: 'Entrada al sistema',
+  LOGIN_FALLIDO: 'Entrada fallida',
+  CAJERO_BLOQUEADO: 'Usuario bloqueado',
+  PIN_CAMBIADO: 'Cambio de PIN',
+  USUARIO_CREADO: 'Alta de usuario',
+  USUARIO_EDITADO: 'Cambio de usuario',
+  RESPALDO: 'Respaldo',
+  CLIENTES_IMPORTADOS: 'Clientes del POS',
+  SOLICITUDES_GENERADAS: 'Tanda de WhatsApp armada',
+  SOLICITUDES_MARCADAS_ENVIADAS: 'Tanda marcada como enviada',
+  UBICACION_RECIBIDA: 'Ubicacion recibida',
+  UBICACION_ACEPTADA: 'Ubicacion aceptada',
+  UBICACION_RECHAZADA: 'Ubicacion rechazada',
 };
 
 const COLOR_EVENTO: Record<string, string> = {
-  ABONO: 'bg-entrada/15 text-entrada',
-  ABONO_ANULADO: 'bg-alerta/15 text-alerta',
-  CIERRE_CHOFER: 'bg-sky-500/15 text-sky-300',
-  ARQUEO: 'bg-violet-500/15 text-violet-300',
-  CARGA_EXCEL: 'bg-amber-500/15 text-aviso',
+  MANTENIMIENTO: 'bg-amber-500/15 text-aviso',
+  MOTO_ESTADO: 'bg-alerta/15 text-alerta',
+  MOTO_ASIGNADA: 'bg-sky-500/15 text-sky-300',
+  MOTO_LIBERADA: 'bg-sky-500/15 text-sky-300',
+  UBICACION_ACEPTADA: 'bg-entrada/15 text-entrada',
+  UBICACION_RECHAZADA: 'bg-alerta/15 text-alerta',
+  LOGIN_FALLIDO: 'bg-alerta/15 text-alerta',
 };
 
-/** Los eventos que un cajero quiere filtrar a diario. */
+/** Los eventos que alguien busca a diario. */
 const TIPOS_FILTRABLES = [
   { valor: '', texto: 'Todos los eventos' },
-  { valor: 'ABONO', texto: 'Abonos' },
-  { valor: 'CIERRE_CHOFER', texto: 'Cierres' },
-  { valor: 'ARQUEO', texto: 'Arqueos' },
-  { valor: 'CARGA_EXCEL', texto: 'Cargas de Excel' },
-  { valor: 'ABONO_ANULADO', texto: 'Anulaciones' },
-  { valor: 'REIMPRESION', texto: 'Reimpresiones' },
+  { valor: 'MANTENIMIENTO', texto: 'Gastos y mantenimiento' },
+  { valor: 'MOTO_ESTADO', texto: 'Cambios de estado de moto' },
+  { valor: 'MOTO_ASIGNADA', texto: 'Asignaciones de moto' },
+  { valor: 'UBICACION_ACEPTADA', texto: 'Ubicaciones aceptadas' },
+  { valor: 'SOLICITUDES_GENERADAS', texto: 'Tandas de WhatsApp' },
+  { valor: 'LOGIN', texto: 'Entradas al sistema' },
 ];
 
 export function PanelHistorial({
   filas,
-  metricas,
   hayMas,
   opciones,
   filtrosActuales,
@@ -85,8 +97,6 @@ export function PanelHistorial({
   const [pendiente, iniciarTransicion] = useTransition();
 
   const [detalle, setDetalle] = useState<FilaHistorial | null>(null);
-  const [exportando, setExportando] = useState(false);
-  const [aviso, setAviso] = useState<string | null>(null);
 
   const cambiarFiltro = useCallback(
     (clave: string, valor: string) => {
@@ -100,7 +110,6 @@ export function PanelHistorial({
 
   const atajoDias = useCallback(
     (dias: number) => {
-      const hasta = new Date();
       const desde = new Date();
       desde.setDate(desde.getDate() - dias);
       const nuevos = new URLSearchParams(parametros.toString());
@@ -110,44 +119,6 @@ export function PanelHistorial({
     },
     [parametros, rutaActual, router],
   );
-
-  const exportar = useCallback(async () => {
-    setExportando(true);
-    setAviso(null);
-    const respuesta = await accionExportarExcel(
-      {
-        desde: filtrosActuales.desde || undefined,
-        hasta: filtrosActuales.hasta || undefined,
-        choferId: filtrosActuales.choferId || undefined,
-        cajeroId: filtrosActuales.cajeroId || undefined,
-        tipos: filtrosActuales.tipo ? [filtrosActuales.tipo] : undefined,
-      },
-      descripcionFiltro,
-    );
-
-    if (!respuesta.ok) {
-      setAviso(respuesta.mensaje);
-      setExportando(false);
-      return;
-    }
-
-    // El archivo llega en base64 y se arma en el navegador: asi no hay que
-    // escribirlo en el disco de la caja ni limpiarlo despues.
-    const binario = atob(respuesta.datos.base64);
-    const bytes = new Uint8Array(binario.length);
-    for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
-    const url = URL.createObjectURL(
-      new Blob([bytes], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      }),
-    );
-    const enlace = document.createElement('a');
-    enlace.href = url;
-    enlace.download = respuesta.datos.nombreArchivo;
-    enlace.click();
-    URL.revokeObjectURL(url);
-    setExportando(false);
-  }, [descripcionFiltro, filtrosActuales]);
 
   return (
     <div className="space-y-5">
@@ -228,65 +199,16 @@ export function PanelHistorial({
 
       <section className="tarjeta p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-bold">Metricas del periodo</h2>
-          <p className="text-sm text-slate-400">{descripcionFiltro}</p>
-        </div>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Metrica etiqueta="Efectivo esperado" valor={formatearMoneda(metricas.efectivoEsperado)} />
-          <Metrica etiqueta="Tarjeta" valor={formatearMoneda(metricas.tarjeta)} apagado />
-          <Metrica etiqueta="SINPE Movil" valor={formatearMoneda(metricas.sinpe)} apagado />
-          <Metrica etiqueta="Viajes" valor={String(metricas.viajes)} />
-          <Metrica
-            etiqueta={`Abonos recibidos (${metricas.cantidadAbonos})`}
-            valor={formatearMoneda(metricas.abonosParciales)}
-            color="text-entrada"
-          />
-          <Metrica
-            etiqueta="Entregas en cierre"
-            valor={formatearMoneda(metricas.entregasEnCierre)}
-            color="text-entrada"
-          />
-          <Metrica
-            etiqueta="Faltantes acumulados"
-            valor={formatearMoneda(metricas.faltantes)}
-            color={metricas.faltantes > 0 ? 'text-alerta' : undefined}
-          />
-          <Metrica
-            etiqueta="Sobrantes acumulados"
-            valor={formatearMoneda(metricas.sobrantes)}
-            color={metricas.sobrantes > 0 ? 'text-aviso' : undefined}
-          />
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-3 print:hidden">
-          <button
-            type="button"
-            className="boton-tactil border border-borde bg-panelClaro px-6 text-slate-200 disabled:opacity-40"
-            disabled={exportando}
-            onClick={exportar}
-          >
-            {exportando ? 'Generando...' : '📊 Exportar a Excel'}
-          </button>
-          <button
-            type="button"
-            className="boton-tactil border border-borde bg-panelClaro px-6 text-slate-200"
-            onClick={() => window.print()}
-          >
-            🖨 Imprimir o guardar en PDF
-          </button>
-        </div>
-
-        {aviso ? <p className="mt-4 text-alerta">{aviso}</p> : null}
-      </section>
-
-      <section className="tarjeta p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-bold">Movimientos</h2>
-          <p className="text-sm text-slate-400">
-            {pendiente ? 'Actualizando...' : `${filas.length} registro${filas.length === 1 ? '' : 's'}`}
-            {hayMas ? ' (se muestran los mas recientes)' : ''}
-          </p>
+          <div className="text-right text-sm text-slate-400">
+            <p>{descripcionFiltro}</p>
+            <p>
+              {pendiente
+                ? 'Actualizando...'
+                : `${filas.length} registro${filas.length === 1 ? '' : 's'}`}
+              {hayMas ? ' (se muestran los mas recientes)' : ''}
+            </p>
+          </div>
         </div>
 
         {filas.length === 0 ? (
@@ -321,10 +243,10 @@ export function PanelHistorial({
                         {NOMBRE_EVENTO[fila.tipo] ?? fila.tipo}
                       </span>
                     </td>
-                    <td className="py-3">{fila.choferNombre ?? '—'}</td>
-                    <td className="py-3 text-slate-400">{fila.cajeroNombre ?? '—'}</td>
+                    <td className="py-3">{fila.choferNombre ?? 'sin repartidor'}</td>
+                    <td className="py-3 text-slate-400">{fila.cajeroNombre ?? 'sin usuario'}</td>
                     <td className="cifra py-3 text-right font-bold">
-                      {fila.monto === null ? '—' : <Monto tipo={fila.tipo} monto={fila.monto} />}
+                      {fila.monto === null ? '' : formatearMoneda(fila.monto)}
                     </td>
                     <td className="py-3 text-right print:hidden">
                       <button
@@ -348,31 +270,6 @@ export function PanelHistorial({
   );
 }
 
-/**
- * El signo del monto depende del evento: en un cierre es la diferencia, donde
- * negativo es faltante; en un abono es dinero que entra.
- */
-function Monto({ tipo, monto }: { tipo: string; monto: number }) {
-  if (tipo === 'CIERRE_CHOFER' || tipo === 'ARQUEO') {
-    const clasificacion = clasificarDiferencia(monto);
-    if (clasificacion === 'CUADRADO') return <span className="text-slate-400">Cuadrado</span>;
-    // El signo se escribe con el guion ASCII, igual que formatearMoneda: el
-    // menos tipografico no existe en la pagina de codigos de la impresora y
-    // dos signos distintos en la misma columna se leen como dos cosas.
-    return (
-      <span className={clasificacion === 'FALTANTE' ? 'text-alerta' : 'text-aviso'}>
-        {clasificacion === 'FALTANTE' ? '-' : '+'}
-        {formatearMoneda(Math.abs(monto))}
-      </span>
-    );
-  }
-  return (
-    <span className={monto < 0 ? 'text-alerta' : 'text-slate-100'}>
-      {formatearMoneda(monto)}
-    </span>
-  );
-}
-
 function CampoFiltro({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
   return (
     <label className="block">
@@ -382,56 +279,7 @@ function CampoFiltro({ etiqueta, children }: { etiqueta: string; children: React
   );
 }
 
-function Metrica({
-  etiqueta,
-  valor,
-  apagado = false,
-  color,
-}: {
-  etiqueta: string;
-  valor: string;
-  apagado?: boolean;
-  color?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-borde bg-fondo p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{etiqueta}</p>
-      <p
-        className={`cifra mt-1 text-2xl font-bold ${
-          color ?? (apagado ? 'text-slate-400' : 'text-slate-100')
-        }`}
-      >
-        {valor}
-      </p>
-    </div>
-  );
-}
-
 function FichaDetalle({ fila, alCerrar }: { fila: FilaHistorial; alCerrar: () => void }) {
-  const [tiquete, setTiquete] = useState<string | null>(null);
-  const [cargando, setCargando] = useState(false);
-  const [mensaje, setMensaje] = useState<string | null>(null);
-
-  const verTiquete = useCallback(async () => {
-    if (!fila.tiqueteId) return;
-    setCargando(true);
-    const respuesta = await accionPrevisualizarTiquete(fila.tiqueteId);
-    if (respuesta.ok) setTiquete(respuesta.datos);
-    else setMensaje(respuesta.mensaje);
-    setCargando(false);
-  }, [fila.tiqueteId]);
-
-  const reimprimir = useCallback(async () => {
-    if (!fila.tiqueteId) return;
-    setCargando(true);
-    setMensaje(null);
-    const respuesta = await accionReimprimir(fila.tiqueteId);
-    if (!respuesta.ok) setMensaje(respuesta.mensaje);
-    else if (respuesta.datos.impreso) setMensaje('El tiquete salio por la impresora.');
-    else setMensaje(respuesta.datos.error ?? 'No se pudo imprimir.');
-    setCargando(false);
-  }, [fila.tiqueteId]);
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
@@ -453,20 +301,20 @@ function FichaDetalle({ fila, alCerrar }: { fila: FilaHistorial; alCerrar: () =>
             className="h-12 w-12 shrink-0 rounded-full border border-borde text-2xl text-slate-400 active:scale-95"
             onClick={alCerrar}
           >
-            ×
+            x
           </button>
         </header>
 
         <dl className="mt-5 grid gap-3 sm:grid-cols-2">
-          <Dato etiqueta="Repartidor" valor={fila.choferNombre ?? '—'} />
-          <Dato etiqueta="Usuario" valor={fila.cajeroNombre ?? '—'} />
+          <Dato etiqueta="Repartidor" valor={fila.choferNombre ?? 'sin repartidor'} />
+          <Dato etiqueta="Usuario" valor={fila.cajeroNombre ?? 'sin usuario'} />
           <Dato
             etiqueta="Monto"
-            valor={fila.monto === null ? '—' : formatearMoneda(fila.monto)}
+            valor={fila.monto === null ? 'sin monto' : formatearMoneda(fila.monto)}
           />
-          <Dato etiqueta="Dispositivo" valor={fila.dispositivo ?? '—'} />
-          <Dato etiqueta="Entidad" valor={fila.entidadTipo ?? '—'} />
-          <Dato etiqueta="Referencia" valor={fila.entidadId ?? '—'} />
+          <Dato etiqueta="Dispositivo" valor={fila.dispositivo ?? 'sin dato'} />
+          <Dato etiqueta="Entidad" valor={fila.entidadTipo ?? 'sin dato'} />
+          <Dato etiqueta="Referencia" valor={fila.entidadId ?? 'sin dato'} />
         </dl>
 
         {fila.detalle ? (
@@ -484,41 +332,6 @@ function FichaDetalle({ fila, alCerrar }: { fila: FilaHistorial; alCerrar: () =>
             </dl>
           </div>
         ) : null}
-
-        {tiquete ? (
-          <pre className="mt-5 overflow-x-auto rounded-2xl border border-borde bg-fondo p-4 text-xs leading-tight text-slate-300">
-            {tiquete}
-          </pre>
-        ) : null}
-
-        {mensaje ? (
-          <p className="mt-4 rounded-xl bg-panelClaro p-3 text-center text-slate-200">{mensaje}</p>
-        ) : null}
-
-        {fila.tiqueteId ? (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              className="boton-tactil border border-borde bg-panelClaro text-slate-200 disabled:opacity-40"
-              disabled={cargando}
-              onClick={verTiquete}
-            >
-              👁 Ver tiquete
-            </button>
-            <button
-              type="button"
-              className="boton-tactil bg-entrada text-slate-950 disabled:opacity-40"
-              disabled={cargando}
-              onClick={reimprimir}
-            >
-              🖨 Reimprimir tiquete
-            </button>
-          </div>
-        ) : (
-          <p className="mt-5 text-center text-sm text-slate-500">
-            Este movimiento no genero un tiquete.
-          </p>
-        )}
       </div>
     </div>
   );

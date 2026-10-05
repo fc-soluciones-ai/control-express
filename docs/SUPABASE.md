@@ -71,13 +71,13 @@ se crean las tablas nuevas, eso se pierde.
 Antes de cambiar el motor, con la configuracion todavia en SQLite:
 
 ```bash
-npm run datos:exportar
+npm run db:volcar
 ```
 
 Despues de crear las tablas en PostgreSQL:
 
 ```bash
-npm run datos:importar -- --aplicar
+npm run db:cargar -- --archivo storage/volcados/volcado-....json --aplicar
 ```
 
 Los PIN viajan como hash, asi que nadie necesita conocerlos ni cambiarlos.
@@ -114,7 +114,7 @@ automáticos en su plan, y para una copia propia se usa `pg_dump`. Hay que
 reescribir el procedimiento de `docs/RESPALDOS.md`.
 
 **La caja deja de funcionar sin internet.** Hoy, si se cae la conexión, el
-sistema sigue recibiendo abonos porque la base está en el mismo equipo. Contra
+sistema sigue funcionando porque la base está en el mismo equipo. Contra
 Supabase, sin internet no hay caja. Para un negocio que cierra a la una de la
 mañana esto no es un detalle menor: conviene tener claro qué se hace esa noche
 que el proveedor falle.
@@ -139,7 +139,7 @@ aplicacion en produccion.
 
 Se vio en vivo: despues de correr las pruebas, TODAS las conexiones nuevas
 veian el esquema de pruebas. El dashboard reportaba cero repartidores y un
-abono nuevo se habria escrito en las tablas equivocadas. Los datos nunca se
+dato nuevo se habria escrito en las tablas equivocadas. Los datos nunca se
 perdieron, pero la aplicacion estaba mirando al lugar equivocado.
 
 Dos cambios lo cierran:

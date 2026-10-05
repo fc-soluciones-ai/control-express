@@ -1,55 +1,40 @@
 /**
  * Valores validos de las columnas tipo "enum" del esquema.
  *
- * SQLite no soporta enums nativos en Prisma, asi que las columnas son String.
+ * Las columnas son String y no enums nativos, de cuando la base era SQLite.
  * Este archivo es la unica definicion autorizada de los valores permitidos y
  * se usa tanto para validar con Zod como para tipar el codigo.
+ *
+ * De aqui salieron los valores de lo contable: turnos, tipos de corte, tipos
+ * de reporte del Excel, tiquetes y estados de impresion. Si alguno vuelve a
+ * aparecer en un archivo, es que quedo codigo viejo sin quitar.
  */
 
 export const ESTADO_CHOFER = ['ACTIVO', 'INACTIVO'] as const;
 export type EstadoChofer = (typeof ESTADO_CHOFER)[number];
 
-export const ESTADO_TURNO = ['ABIERTO', 'CERRADO'] as const;
-export type EstadoTurno = (typeof ESTADO_TURNO)[number];
-
-export const TIPO_CORTE = ['PARCIAL', 'TOTAL'] as const;
-export type TipoCorte = (typeof TIPO_CORTE)[number];
-
-/** BLANCO = venta facturada. NEGRO = venta no facturada. */
-export const TIPO_REPORTE = ['BLANCO', 'NEGRO'] as const;
-export type TipoReporte = (typeof TIPO_REPORTE)[number];
-
 /**
- * Formato del archivo de Soft Restaurant:
- * - DETALLADO:   ventasmeserosdetallado.xls, una fila por cheque.
- * - CONSOLIDADO: 09-09-26.xls, una fila por mesero ya sumada.
+ * Los estados por los que pasa un pedido, tal como los deriva el agente de las
+ * marcas de tiempo del POS. Ver estadoDelPedido en services/pos.ts.
+ *
+ * Hoy EN_COCINA y ASIGNADO casi no aparecen: el POS tiene las columnas pero
+ * nadie las usa en el local. Se mantienen porque el dia que se empiecen a
+ * marcar, el tablero ya sabe pintarlas y no hay que migrar nada.
  */
-export const FORMATO_EXCEL = ['DETALLADO', 'CONSOLIDADO'] as const;
-export type FormatoExcel = (typeof FORMATO_EXCEL)[number];
-
-export const TIPO_TIQUETE = [
-  'ABONO',
-  'CIERRE_CHOFER',
-  'ARQUEO',
-  'CIERRE_GRUPAL',
+export const ESTADO_PEDIDO = [
+  'RECIBIDO',
+  'EN_COCINA',
+  'ASIGNADO',
+  'EN_CAMINO',
+  'ENTREGADO',
+  'CANCELADO',
 ] as const;
-export type TipoTiquete = (typeof TIPO_TIQUETE)[number];
-
-export const ESTADO_IMPRESION = ['PENDIENTE', 'IMPRESO', 'ERROR'] as const;
-export type EstadoImpresion = (typeof ESTADO_IMPRESION)[number];
+export type EstadoPedido = (typeof ESTADO_PEDIDO)[number];
 
 export const TIPO_EVENTO = [
-  'ABONO',
-  'ABONO_ANULADO',
-  'CARGA_EXCEL',
-  'CIERRE_CHOFER',
-  'ARQUEO',
   'CHOFER_CREADO',
   'CHOFER_EDITADO',
   'CHOFER_DESACTIVADO',
-  'TURNO_ABIERTO',
-  'TURNO_CANCELADO',
-  'REIMPRESION',
   'LOGIN',
   'LOGIN_FALLIDO',
   'CAJERO_BLOQUEADO',

@@ -1,16 +1,40 @@
 /**
- * Comprobacion de las garantias que el esquema debe dar por si mismo.
- * Escribe y borra datos de prueba en la base apuntada por DATABASE_URL.
- * Ejecutar con: npm run test:esquema
+ * Comprobacion de las garantias que el esquema debe dar POR SI MISMO.
+ *
+ *   npm run test:esquema
+ *
+ * Lo que se prueba aqui no es logica nuestra: es lo que la base impide aunque
+ * el codigo se equivoque. Un candado de unicidad sigue puesto cuando alguien
+ * escriba un servicio nuevo y se olvide de la regla; una comprobacion en
+ * TypeScript, no.
+ *
+ * Escribe y borra filas, asi que corre contra la base de PRUEBAS. Antes corria
+ * contra DATABASE_URL directo, lo que significaba que un descuido en el .env
+ * escribia en la base del negocio.
+ *
+ * Esto probaba los candados de los turnos y la suma de los abonos. Las dos
+ * tablas salieron con lo contable. Lo que queda que la base tiene que
+ * garantizar sola son los candados de las asignaciones de moto y la clave
+ * unica del pedido del POS.
  */
 
 import { prisma } from '@/lib/db/prisma';
+
+import { exigirBaseDePruebas } from './guarda-pruebas';
+
+let fallos = 0;
+
+function comprobar(que: string, real: unknown, esperado: unknown): void {
+  const bien = JSON.stringify(real) === JSON.stringify(esperado);
+  if (!bien) fallos += 1;
+  console.log(`${bien ? 'OK  ' : 'MAL '} ${que}${bien ? '' : `  (${real} != ${esperado})`}`);
+}
 
 /**
  * Lista las tablas sin depender del motor.
  *
  * Cada base guarda su catalogo en un lugar distinto, y esta comprobacion tiene
- * que seguir sirviendo tanto en la caja local con SQLite como en Supabase.
+ * que seguir sirviendo tanto en un archivo de SQLite como en Supabase.
  */
 async function listarTablas(): Promise<string[]> {
   const esSqlite = (process.env.DATABASE_URL ?? '').startsWith('file:');
@@ -22,60 +46,133 @@ async function listarTablas(): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
-  console.log('Tablas creadas:', (await listarTablas()).join(', '));
+  exigirBaseDePruebas();
 
-  const cajero = await prisma.cajero.create({
-    data: { nombre: 'Caja de prueba', pin: 'hash-de-prueba' },
-  });
+  const tablas = await listarTablas();
+  console.log('Tablas creadas:', tablas.join(', '));
+  console.log('');
+
+  // Las tablas de lo contable no deben volver por una migracion mal hecha.
+  const contables = [
+    'turnos_chofer',
+    'abonos_efectivo',
+    'cargas_excel',
+    'ventas_chofer_excel',
+    'cierres_chofer',
+    'arqueos_caja',
+    'tiquetes',
+  ];
+  comprobar(
+    'no queda ninguna tabla de lo contable',
+    tablas.filter((t) => contables.includes(t)),
+    [],
+  );
+  comprobar('la tabla de pedidos existe', tablas.includes('pedidos'), true);
+  comprobar('la de clientes tambien', tablas.includes('clientes'), true);
+
+  const marca = Date.now();
   const chofer = await prisma.chofer.create({
     data: {
-      idMeseroSoftRestaurant: `PRUEBA-${Date.now()}`,
+      idMeseroSoftRestaurant: `PRUEBA-${marca}`,
       nombre: 'Antonio Rojas',
       nombreNormalizado: 'ANTONIO ROJAS',
     },
   });
+  const moto = await prisma.motocicleta.create({
+    data: { placa: `MOT-${marca}`, marca: 'Honda', modelo: 'CG 150', anio: 2020, kilometrajeActual: 1000 },
+  });
+  const otra = await prisma.motocicleta.create({
+    data: { placa: `OTR-${marca}`, marca: 'Honda', modelo: 'CG 150', anio: 2020, kilometrajeActual: 1000 },
+  });
 
-  const turno1 = await prisma.turnoChofer.create({
-    data: { choferId: chofer.id, candadoTurnoAbierto: chofer.id },
+  // --- Un chofer no puede tener dos motos a la vez ---------------------------
+  const asignacion = await prisma.asignacionMoto.create({
+    data: {
+      placa: moto.placa,
+      choferId: chofer.id,
+      candadoChoferActivo: chofer.id,
+      candadoMotoActiva: moto.placa,
+    },
   });
 
   let bloqueado = false;
   try {
-    await prisma.turnoChofer.create({
-      data: { choferId: chofer.id, candadoTurnoAbierto: chofer.id },
+    await prisma.asignacionMoto.create({
+      data: {
+        placa: otra.placa,
+        choferId: chofer.id,
+        candadoChoferActivo: chofer.id,
+        candadoMotoActiva: otra.placa,
+      },
     });
   } catch {
     bloqueado = true;
   }
-  console.log('Segundo turno abierto rechazado por la base:', bloqueado);
+  comprobar('la base rechaza una segunda moto para el mismo chofer', bloqueado, true);
 
-  await prisma.turnoChofer.update({
-    where: { id: turno1.id },
-    data: { estado: 'CERRADO', fechaCierre: new Date(), candadoTurnoAbierto: null },
+  // --- Y una moto no puede estar con dos choferes ----------------------------
+  const otroChofer = await prisma.chofer.create({
+    data: {
+      idMeseroSoftRestaurant: `PRUEBA2-${marca}`,
+      nombre: 'Bernal Mora',
+      nombreNormalizado: 'BERNAL MORA',
+    },
   });
-  const turno2 = await prisma.turnoChofer.create({
-    data: { choferId: chofer.id, candadoTurnoAbierto: chofer.id },
-  });
-  console.log('Tras cerrar, se puede abrir otro turno:', turno2.id.length > 0);
+  bloqueado = false;
+  try {
+    await prisma.asignacionMoto.create({
+      data: {
+        placa: moto.placa,
+        choferId: otroChofer.id,
+        candadoChoferActivo: otroChofer.id,
+        candadoMotoActiva: moto.placa,
+      },
+    });
+  } catch {
+    bloqueado = true;
+  }
+  comprobar('la base rechaza la misma moto para dos choferes', bloqueado, true);
 
-  await prisma.abonoEfectivo.createMany({
-    data: [
-      { turnoChoferId: turno2.id, montoAbonado: 1_500_000, cajeroId: cajero.id, dispositivo: 'CAJA-1' },
-      { turnoChoferId: turno2.id, montoAbonado: 800_000, cajeroId: cajero.id, dispositivo: 'CAJA-1' },
-    ],
+  // --- Al cerrar la asignacion, los candados se liberan ----------------------
+  await prisma.asignacionMoto.update({
+    where: { id: asignacion.id },
+    data: { fechaFin: new Date(), candadoChoferActivo: null, candadoMotoActiva: null },
   });
-  const suma = await prisma.abonoEfectivo.aggregate({
-    where: { turnoChoferId: turno2.id },
-    _sum: { montoAbonado: true },
+  const reasignada = await prisma.asignacionMoto.create({
+    data: {
+      placa: moto.placa,
+      choferId: otroChofer.id,
+      candadoChoferActivo: otroChofer.id,
+      candadoMotoActiva: moto.placa,
+    },
   });
-  console.log('Saldo de abonos derivado (centimos):', suma._sum.montoAbonado);
+  comprobar('cerrada la anterior, la moto se puede reasignar', reasignada.id.length > 0, true);
 
-  // Limpieza
-  await prisma.abonoEfectivo.deleteMany({ where: { cajeroId: cajero.id } });
-  await prisma.turnoChofer.deleteMany({ where: { choferId: chofer.id } });
-  await prisma.chofer.delete({ where: { id: chofer.id } });
-  await prisma.cajero.delete({ where: { id: cajero.id } });
-  console.log('Datos de prueba eliminados.');
+  // --- El mismo pedido del POS no entra dos veces ----------------------------
+  const clave = `A-${marca}`;
+  await prisma.pedido.create({
+    data: { claveDelPos: clave, folio: '1', entroEn: new Date(), estado: 'RECIBIDO' },
+  });
+  bloqueado = false;
+  try {
+    await prisma.pedido.create({
+      data: { claveDelPos: clave, folio: '1', entroEn: new Date(), estado: 'RECIBIDO' },
+    });
+  } catch {
+    bloqueado = true;
+  }
+  comprobar('la base rechaza el mismo pedido del POS dos veces', bloqueado, true);
+
+  // --- Limpieza --------------------------------------------------------------
+  await prisma.pedido.deleteMany({ where: { claveDelPos: clave } });
+  await prisma.asignacionMoto.deleteMany({
+    where: { choferId: { in: [chofer.id, otroChofer.id] } },
+  });
+  await prisma.chofer.deleteMany({ where: { id: { in: [chofer.id, otroChofer.id] } } });
+  await prisma.motocicleta.deleteMany({ where: { placa: { in: [moto.placa, otra.placa] } } });
+
+  console.log(`\n${fallos === 0 ? 'Todo bien' : `${fallos} fallas`}`);
+  if (fallos > 0) process.exitCode = 1;
 }
 
 main()

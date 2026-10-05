@@ -2,35 +2,36 @@
  * Que puede hacer cada rol.
  *
  * Los tres roles existian en la base desde el principio, pero no gobernaban
- * nada: cualquier usuario de caja podia importar el Excel del mes, editar la
- * flota o borrar una evidencia. El rol solo se consultaba para el PIN de los
- * repartidores.
+ * nada: cualquier usuario podia editar la flota o borrar una evidencia. El rol
+ * solo se consultaba para el PIN de los repartidores.
  *
  * La matriz vive aqui, en un solo lugar, y no repartida por las acciones. Ver
  * de un vistazo quien puede que es lo que permite discutirlo con el negocio
  * sin leer codigo.
  *
- * CAJERO      la operacion del turno: abonos, turnos, cierres, arqueos y
- *             reimpresiones. Es lo que se hace cada noche en el mostrador.
- * SUPERVISOR  ademas, lo que corrige o reconfigura el dia: importar el Excel,
- *             la flota, los repartidores y borrar una foto mal tomada.
- * ADMIN       ademas, las llaves: usuarios de caja, roles y PIN.
+ * CAJERO      lo de cada noche: mirar el tablero de entregas y el historial.
+ * SUPERVISOR  ademas, lo que corrige o reconfigura el dia: la flota, los
+ *             repartidores, los clientes y borrar una foto mal tomada.
+ * ADMIN       ademas, las llaves: usuarios, roles y PIN.
+ *
+ * Aqui habia dos permisos mas, CAJA e IMPORTAR, de cuando el sistema cerraba
+ * la caja y cargaba el Excel de ventas. Las dos cosas salieron: la caja porque
+ * el negocio dejo de llevarla aqui, y la importacion porque los datos ya
+ * llegan solos desde la base del POS.
  */
 
 import { ErrorNegocio } from '@/server/errores';
 
 export const PERMISOS = {
-  /** Abonos, turnos, cierres, arqueos, reimpresion. */
-  CAJA: ['CAJERO', 'SUPERVISOR', 'ADMIN'],
-  /** Cargar el Excel de ventas de Soft Restaurant. */
-  IMPORTAR: ['SUPERVISOR', 'ADMIN'],
+  /** El tablero de entregas y el historial. Lo mira cualquiera del mostrador. */
+  OPERACION: ['CAJERO', 'SUPERVISOR', 'ADMIN'],
   /** Alta y edicion de motos, gastos de taller, GPS, asignaciones. */
   FLOTA: ['SUPERVISOR', 'ADMIN'],
   /** Alta, edicion y baja de repartidores. */
   REPARTIDORES: ['SUPERVISOR', 'ADMIN'],
   /** Quitar una foto ya subida. Deja hueco en la evidencia: no es de todos. */
   BORRAR_EVIDENCIA: ['SUPERVISOR', 'ADMIN'],
-  /** Usuarios de caja, sus roles y los PIN de todo el mundo. */
+  /** Usuarios del sistema, sus roles y los PIN de todo el mundo. */
   USUARIOS: ['ADMIN'],
   /**
    * La base de clientes y los pedidos de ubicacion por WhatsApp.
@@ -49,8 +50,7 @@ export function tienePermiso(rol: string, permiso: Permiso): boolean {
 }
 
 const COMO_SE_LLAMA: Record<Permiso, string> = {
-  CAJA: 'la caja',
-  IMPORTAR: 'importar el Excel',
+  OPERACION: 'el tablero y el historial',
   FLOTA: 'la flota',
   REPARTIDORES: 'los repartidores',
   BORRAR_EVIDENCIA: 'borrar evidencia',
@@ -59,8 +59,7 @@ const COMO_SE_LLAMA: Record<Permiso, string> = {
 };
 
 const QUIEN_SI: Record<Permiso, string> = {
-  CAJA: 'un usuario de caja',
-  IMPORTAR: 'un supervisor o un administrador',
+  OPERACION: 'un usuario del mostrador',
   FLOTA: 'un supervisor o un administrador',
   REPARTIDORES: 'un supervisor o un administrador',
   BORRAR_EVIDENCIA: 'un supervisor o un administrador',

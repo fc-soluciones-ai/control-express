@@ -60,21 +60,19 @@ async function main(): Promise<void> {
   const deRol = (rol: string) =>
     (Object.keys(PERMISOS) as Permiso[]).filter((p) => tienePermiso(rol, p)).sort();
 
-  comprobar('el cajero solo opera la caja', deRol('CAJERO'), ['CAJA']);
+  comprobar('el cajero solo mira la operacion', deRol('CAJERO'), ['OPERACION']);
   comprobar('el supervisor corrige y configura el dia', deRol('SUPERVISOR'), [
     'BORRAR_EVIDENCIA',
-    'CAJA',
     'CLIENTES',
     'FLOTA',
-    'IMPORTAR',
+    'OPERACION',
     'REPARTIDORES',
   ]);
   comprobar('el administrador ademas lleva las llaves', deRol('ADMIN'), [
     'BORRAR_EVIDENCIA',
-    'CAJA',
     'CLIENTES',
     'FLOTA',
-    'IMPORTAR',
+    'OPERACION',
     'REPARTIDORES',
     'USUARIOS',
   ]);

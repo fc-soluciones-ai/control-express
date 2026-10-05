@@ -1,7 +1,8 @@
 # Respaldos y restauración
 
 La base de datos es un archivo. Si ese archivo se pierde, el negocio pierde
-toda su historia de abonos, cierres y arqueos, y no hay forma de reconstruirla
+toda su historia de pedidos, gastos de flota y ubicaciones de clientes, y no
+hay forma de reconstruirla
 desde Soft Restaurant, que nunca supo cuánto entregó cada repartidor en caja.
 
 ---
@@ -79,7 +80,7 @@ Otras opciones:
 | Comando | Para qué |
 |---|---|
 | `npm run db:respaldar -- --listar` | Ver las copias existentes |
-| `npm run db:respaldar -- --etiqueta cierre-de-mes` | Copia con nombre reconocible |
+| `npm run db:respaldar -- --etiqueta fin-de-mes` | Copia con nombre reconocible |
 | `npm run db:respaldar -- --verificar` | Revisar la copia más reciente |
 | `npm run db:restaurar -- --listar` | Ver de qué se puede restaurar |
 

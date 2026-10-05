@@ -11,7 +11,6 @@
 import { revalidatePath } from 'next/cache';
 
 import { esErrorNegocio } from '@/server/errores';
-import { exportarGastosACsv, exportarGastosAExcel } from '@/server/services/exportar';
 import {
   historialDeFlota,
   registrarMantenimiento,
@@ -210,44 +209,6 @@ export async function accionBorrarEvidencia(id: string): Promise<Resultado<null>
     await borrarEvidencia(id, { cajeroId: cajero.id });
     refrescar();
     return { ok: true, datos: null };
-  } catch (e) {
-    return comoResultado(e);
-  }
-}
-
-/**
- * El reporte de flota, en Excel o en CSV.
- *
- * Lleva TODO lo que cae en el filtro, no solo la pagina que se ve: quien
- * exporta quiere el periodo completo, y descubrir que el archivo traia
- * veinticinco filas de ciento treinta es de los errores que se notan tarde.
- */
-export async function accionExportarGastos(
-  filtros: { placa?: string; desde?: string; hasta?: string; categoria?: string; buscar?: string },
-  formato: 'EXCEL' | 'CSV',
-  descripcionFiltro: string,
-): Promise<Resultado<{ nombreArchivo: string; base64: string }>> {
-  try {
-    await exigirCajeroCon('FLOTA');
-
-    const rango = {
-      placa: filtros.placa || undefined,
-      desde: filtros.desde ? new Date(`${filtros.desde}T00:00:00`) : undefined,
-      hasta: filtros.hasta ? new Date(`${filtros.hasta}T23:59:59.999`) : undefined,
-      categoria: (filtros.categoria || undefined) as CategoriaMantenimiento | undefined,
-      busqueda: filtros.buscar || undefined,
-    };
-
-    const [lineas, resumen] = await Promise.all([
-      historialDeFlota(rango, 500),
-      resumenDeFlota(rango),
-    ]);
-
-    const parametros = { lineas, resumen, descripcionFiltro };
-    return {
-      ok: true,
-      datos: formato === 'CSV' ? exportarGastosACsv(parametros) : exportarGastosAExcel(parametros),
-    };
   } catch (e) {
     return comoResultado(e);
   }

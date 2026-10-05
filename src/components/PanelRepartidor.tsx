@@ -4,17 +4,18 @@
  * Lo que ve el repartidor en su telefono.
  *
  * Una sola columna y numeros grandes: esto se mira de pie, en la calle, con
- * una mano. Nada que tocar salvo salir; es una pantalla para consultar, no
- * para registrar. El dinero lo recibe la caja.
+ * una mano. Es una pantalla para consultar, no para registrar.
  *
- * Lo primero y mas grande es cuanto lleva entregado, porque es la pregunta
- * que el repartidor hace veinte veces por noche.
+ * Lo primero y mas grande era cuanto llevaba entregado de efectivo. Al salir
+ * lo contable, lo primero es lo que trae en la mano: cuantos pedidos le faltan
+ * y desde cuando los tiene. Esa es la pregunta que importa cuando el problema
+ * del negocio es que los pedidos llegan tarde.
  */
 
 import Link from 'next/link';
 
 import { accionSalir } from '@/app/acciones';
-import { formatearMoneda } from '@/lib/money/money';
+import { minutosDesde, colorDeEspera, ETIQUETA_TRAMO } from '@/lib/entregas/espera';
 import type { AlertaMoto } from '@/server/services/mantenimiento';
 import type { ResumenDelRepartidor } from '@/server/services/repartidor';
 import type { RepartidorEnSesion } from '@/server/services/sesion';
@@ -22,6 +23,8 @@ import type { RepartidorEnSesion } from '@/server/services/sesion';
 interface Props {
   repartidor: RepartidorEnSesion;
   resumen: ResumenDelRepartidor;
+  /** Instante en que el servidor armo la pantalla, para medir la espera. */
+  ahora: string;
 }
 
 const NOMBRE_CATEGORIA: Record<string, string> = {
@@ -46,12 +49,13 @@ function textoDeAlerta(alerta: AlertaMoto): string {
   }
   const fecha = alerta.vence.toLocaleDateString('es-CR');
   if (alerta.nivel === 'VENCIDO') return `vencio el ${fecha}`;
-  if (alerta.diasRestantes === 0) return `vence hoy`;
+  if (alerta.diasRestantes === 0) return 'vence hoy';
   return `vence en ${alerta.diasRestantes} dia${alerta.diasRestantes === 1 ? '' : 's'}`;
 }
 
-export function PanelRepartidor({ repartidor, resumen }: Props) {
-  const hora = (f: Date) =>
+export function PanelRepartidor({ repartidor, resumen, ahora }: Props) {
+  const referencia = new Date(ahora);
+  const hora = (f: Date | string) =>
     new Date(f).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: true });
 
   return (
@@ -74,24 +78,59 @@ export function PanelRepartidor({ repartidor, resumen }: Props) {
       </header>
 
       <section className="tarjeta mt-5 p-6 text-center">
-        <p className="text-xs uppercase tracking-widest text-slate-500">
-          {resumen.enTurno ? 'Entregado en este turno' : 'Entregado hoy'}
-        </p>
-        <p className="cifra mt-2 text-5xl font-bold text-entrada">
-          {formatearMoneda(resumen.enTurno ? resumen.entregadoEnTurno : resumen.entregadoHoy)}
-        </p>
+        <p className="text-xs uppercase tracking-widest text-slate-500">Lleva en la calle</p>
+        <p className="cifra mt-2 text-6xl font-bold text-slate-100">{resumen.enCamino.length}</p>
         <p className="mt-2 text-sm text-slate-400">
-          {resumen.enTurno
-            ? `${resumen.cantidadAbonos} entrega${resumen.cantidadAbonos === 1 ? '' : 's'} · turno abierto`
-            : 'No tiene turno abierto ahora'}
+          {resumen.entregadosHoy} entregado{resumen.entregadosHoy === 1 ? '' : 's'} de{' '}
+          {resumen.pedidosHoy} que le toco hoy
         </p>
-        {resumen.enTurno && resumen.entregadoHoy !== resumen.entregadoEnTurno ? (
-          <p className="mt-2 text-xs text-slate-500">
-            En todo el dia lleva {formatearMoneda(resumen.entregadoHoy)}, contando turnos ya
-            cerrados.
-          </p>
-        ) : null}
       </section>
+
+      {resumen.enCamino.length > 0 ? (
+        <section className="tarjeta mt-4 p-5">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Sus pedidos pendientes</p>
+          <ul className="mt-3 space-y-2">
+            {resumen.enCamino.map((pedido) => {
+              const minutos = minutosDesde(pedido.salioEn, referencia);
+              const color = colorDeEspera(minutos);
+              return (
+                <li
+                  key={pedido.id}
+                  className={`rounded-2xl border p-3 ${color.borde} ${color.fondo} ${
+                    color.parpadea ? 'animate-parpadeo' : ''
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="cifra font-bold text-slate-100">#{pedido.folio}</span>
+                    <span className={`cifra text-xl font-bold ${color.texto}`}>
+                      {minutos === null ? 'sin hora' : `${minutos} min`}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-100">
+                    {pedido.cliente ?? 'cliente no ligado todavia'}
+                  </p>
+                  {pedido.direccion ? (
+                    <p className={`mt-1 text-xs ${color.secundario}`}>{pedido.direccion}</p>
+                  ) : null}
+                  {pedido.salioEn ? (
+                    <p className={`mt-1 text-xs ${color.secundario}`}>
+                      Salio a las {hora(pedido.salioEn)}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-xs text-slate-500">
+            El color es el tiempo que el cliente lleva esperando: {ETIQUETA_TRAMO.VERDE},{' '}
+            {ETIQUETA_TRAMO.NARANJA}, {ETIQUETA_TRAMO.ROJO}, {ETIQUETA_TRAMO.CRITICO}.
+          </p>
+        </section>
+      ) : (
+        <section className="tarjeta mt-4 p-5 text-center text-slate-400">
+          No tiene pedidos pendientes ahora mismo.
+        </section>
+      )}
 
       <Link
         href="/mi/gasolina"
@@ -99,45 +138,6 @@ export function PanelRepartidor({ repartidor, resumen }: Props) {
       >
         ⛽ Cargar gasolina
       </Link>
-
-      {resumen.ventas ? (
-        <section className="tarjeta mt-4 p-5">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Lo que dice el sistema</p>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-            <Dato etiqueta="Viajes" valor={String(resumen.ventas.viajes)} />
-            <Dato etiqueta="Vendido" valor={formatearMoneda(resumen.ventas.importe)} />
-            <Dato etiqueta="Efectivo" valor={formatearMoneda(resumen.ventas.efectivo)} />
-          </div>
-          <p className="mt-3 text-xs text-slate-500">
-            Sale del reporte de ventas del dia. Si todavia no lo han importado, no aparece.
-          </p>
-        </section>
-      ) : null}
-
-      {resumen.entregas.length > 0 ? (
-        <section className="tarjeta mt-4 p-5">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Sus entregas</p>
-          <ul className="mt-3 divide-y divide-borde">
-            {resumen.entregas.map((entrega) => (
-              <li key={entrega.id} className="flex items-center justify-between py-3">
-                <span className="text-slate-400">{hora(entrega.hora)}</span>
-                <span
-                  className={`cifra font-bold ${
-                    entrega.anulado ? 'text-slate-600 line-through' : 'text-slate-100'
-                  }`}
-                >
-                  {formatearMoneda(entrega.monto)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {resumen.entregas.some((e) => e.anulado) ? (
-            <p className="mt-3 text-xs text-slate-500">
-              Lo tachado se anulo. No cuenta en el total.
-            </p>
-          ) : null}
-        </section>
-      ) : null}
 
       {resumen.moto ? (
         <section className="tarjeta mt-4 p-5">
@@ -178,8 +178,7 @@ export function PanelRepartidor({ repartidor, resumen }: Props) {
                       : 'bg-aviso/15 text-aviso'
                   }`}
                 >
-                  {NOMBRE_CATEGORIA[alerta.categoria] ?? alerta.categoria}:{' '}
-                  {textoDeAlerta(alerta)}
+                  {NOMBRE_CATEGORIA[alerta.categoria] ?? alerta.categoria}: {textoDeAlerta(alerta)}
                 </li>
               ))}
             </ul>
@@ -192,18 +191,8 @@ export function PanelRepartidor({ repartidor, resumen }: Props) {
       )}
 
       <p className="mt-6 text-center text-xs text-slate-600">
-        Dia operativo {resumen.diaOperativo}. Esta pantalla es solo para consultar; el dinero se
-        entrega en la caja.
+        Dia operativo {resumen.diaOperativo}. Los pedidos salen del sistema de la pizzeria.
       </p>
     </main>
-  );
-}
-
-function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
-  return (
-    <div className="rounded-2xl bg-fondo p-3">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{etiqueta}</p>
-      <p className="cifra mt-1 font-bold">{valor}</p>
-    </div>
   );
 }

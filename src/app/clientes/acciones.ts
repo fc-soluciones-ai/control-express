@@ -11,14 +11,12 @@
 import { revalidatePath } from 'next/cache';
 
 import { esErrorNegocio } from '@/server/errores';
-import { exportarTandaAExcel } from '@/server/services/exportar';
 import { exigirCajeroCon } from '@/server/services/sesion';
 import {
   aceptarUbicacion,
   armarTanda,
   marcarTandaEnviada,
   rechazarUbicacion,
-  tandaPorNumero,
   vencerSolicitudesViejas,
 } from '@/server/services/ubicaciones';
 
@@ -31,15 +29,17 @@ function comoResultado(e: unknown): { ok: false; mensaje: string } {
 }
 
 /**
- * Arma la siguiente tanda y devuelve el Excel con la lista de envio.
+ * Arma la siguiente tanda y dice cual es, para abrir la pantalla de envio.
  *
- * Las dos cosas van juntas a proposito: armar la tanda sin bajarse la lista
- * deja creadas unas solicitudes que nadie va a mandar, y el cliente que
- * despues reciba el enlace de la tanda siguiente tendria dos enlaces vivos.
+ * Esto bajaba un Excel con la lista. Ya no se exporta nada: la tanda se abre
+ * en una pantalla con los enlaces de WhatsApp y se trabaja de arriba a abajo.
+ * Es mejor para quien manda los mensajes, porque los enlaces se abren con un
+ * toque en vez de con un archivo de por medio, y ademas la lista no se queda
+ * guardada en la computadora del mostrador con los telefonos de medio Alajuela.
  */
 export async function accionArmarTanda(
   cuantas: number,
-): Promise<Resultado<{ tanda: number; cuantas: number; nombreArchivo: string; base64: string }>> {
+): Promise<Resultado<{ tanda: number; cuantas: number }>> {
   try {
     const cajero = await exigirCajeroCon('CLIENTES');
     await vencerSolicitudesViejas();
@@ -54,26 +54,8 @@ export async function accionArmarTanda(
       };
     }
 
-    const archivo = exportarTandaAExcel({ tanda, lineas });
     revalidatePath('/clientes');
-    return {
-      ok: true,
-      datos: { tanda, cuantas: lineas.length, ...archivo },
-    };
-  } catch (e) {
-    return comoResultado(e);
-  }
-}
-
-/** Vuelve a bajar la lista de una tanda ya armada. */
-export async function accionDescargarTanda(
-  tanda: number,
-): Promise<Resultado<{ nombreArchivo: string; base64: string }>> {
-  try {
-    await exigirCajeroCon('CLIENTES');
-    const lineas = await tandaPorNumero(tanda);
-    if (lineas.length === 0) return { ok: false, mensaje: `No existe la tanda ${tanda}.` };
-    return { ok: true, datos: exportarTandaAExcel({ tanda, lineas }) };
+    return { ok: true, datos: { tanda, cuantas: lineas.length } };
   } catch (e) {
     return comoResultado(e);
   }

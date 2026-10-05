@@ -10,17 +10,16 @@ Cada vez que suba algo a la rama `main`, Vercel compila y publica solo.
 
 ## 1. Qué es esta copia y qué no es
 
-Es la copia de **consulta**: dashboard, historial, reportes, gestión de
-repartidores. Sirve para ver cómo va la caja desde otra oficina.
+Es la copia que de verdad se usa: el tablero de entregas, la flota, los
+clientes y la pantalla del repartidor. Vive en internet porque tiene que
+abrirse desde el monitor del mostrador, desde el teléfono de cada repartidor y
+desde el enlace que el cliente recibe por WhatsApp.
 
-**No imprime tiquetes.** La impresora térmica vive en la red de la pizzería y
-un servidor en internet no la alcanza. Por eso `IMPRESORA_MODO` está en `NONE`
-en la nube, aunque en el local esté en `NETWORK`. Si se copiara ahí la IP de la
-impresora, cada cierre esperaría varios segundos a una máquina inalcanzable y
-no saldría ningún papel.
-
-**La caja que emite comprobantes sigue siendo la computadora del local.** Las
-dos instancias trabajan contra la misma base en Supabase, así que ven lo mismo.
+**Lo único que no vive aquí es el agente del punto de venta.** Soft Restaurant
+corre en una máquina del local, sin VPN, y un servidor en internet no la
+alcanza. El agente corre allá, lee la base con autenticación de Windows y
+empuja los pedidos a esta copia firmados con HMAC. Ver la sección del POS en
+[ARQUITECTURA.md](ARQUITECTURA.md).
 
 ---
 
@@ -60,7 +59,6 @@ deja el proyecto con unas variables nuevas y otras viejas.
 | `MONEDA` | Fijo, `CRC` |
 | `HORA_CORTE_DIA_OPERATIVO` | Fijo, `06:00` |
 | `NOMBRE_NEGOCIO` | Fijo, encabezado del tiquete |
-| `IMPRESORA_MODO` | Forzado a `NONE` |
 
 ---
 

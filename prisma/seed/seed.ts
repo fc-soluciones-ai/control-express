@@ -13,7 +13,7 @@
 import { randomInt } from 'node:crypto';
 
 import { prisma } from '../../src/lib/db/prisma';
-import { normalizarNombre } from '../../src/lib/excel/columnas';
+import { normalizarNombre } from '../../src/lib/texto';
 import { hashearPin } from '../../src/server/services/pin';
 import { REPARTIDORES } from './repartidores';
 

@@ -23,5 +23,13 @@ export default async function MiPantalla() {
 
   const resumen = await resumenDelRepartidor(repartidor.id);
 
-  return <PanelRepartidor repartidor={repartidor} resumen={resumen} />;
+  // La hora del servidor viaja aparte para medir la espera de cada pedido
+  // contra ella y no contra el reloj del telefono, que puede estar desfasado.
+  return (
+    <PanelRepartidor
+      repartidor={repartidor}
+      resumen={resumen}
+      ahora={new Date().toISOString()}
+    />
+  );
 }

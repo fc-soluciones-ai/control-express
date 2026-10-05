@@ -35,16 +35,6 @@ const VARIABLES: Variable[] = [
   { nombre: 'MONEDA', obligatoria: false, valor: 'CRC' },
   { nombre: 'HORA_CORTE_DIA_OPERATIVO', obligatoria: false, valor: '06:00' },
   { nombre: 'NOMBRE_NEGOCIO', obligatoria: false, valor: 'PIZZERIA EXPRESS' },
-  {
-    nombre: 'IMPRESORA_MODO',
-    obligatoria: false,
-    // Se fuerza a NONE aunque en local sea NETWORK: un servidor en internet no
-    // puede alcanzar la impresora de la pizzeria. Copiar aqui la IP local solo
-    // produciria esperas de varios segundos en cada cierre, y ningun tiquete.
-    valor: 'NONE',
-    nota: 'desde la nube no se alcanza la impresora del local',
-  },
-  { nombre: 'IMPRESORA_ANCHO_CARACTERES', obligatoria: false, valor: '48' },
   { nombre: 'GEMINI_API_KEY', obligatoria: false, nota: 'lee las fotos de gasolina; ver npm run ia:clave' },
   { nombre: 'ANTHROPIC_API_KEY', obligatoria: false, nota: 'alternativa a Gemini' },
   {

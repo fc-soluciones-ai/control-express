@@ -1,274 +1,262 @@
 # Control Express — Arquitectura
 
-Sistema de recepción parcial de efectivo y cierre de turno para repartidores
-express, conciliado contra los reportes de venta por mesero de Soft Restaurant
-(National Soft).
+Tablero de entregas, flota de motocicletas y base de clientes para una
+pizzería de Alajuela. Los pedidos los lee un agente de la base de Soft
+Restaurant (National Soft) que corre en el servidor del local.
+
+El problema que resuelve es uno: **los pedidos llegan tarde y nadie en el
+mostrador sabe cuáles ni desde cuándo.** Todo lo demás está aquí porque hace
+falta para responder eso.
+
+> Este sistema empezó siendo el cierre de caja de la pizzería: abonos
+> parciales, turnos, arqueos, tiquetes térmicos y la importación del Excel de
+> ventas por mesero. Esa parte se quitó completa en octubre de 2026, por
+> decisión del negocio. Lo que queda de ella son las menciones explícitas de
+> qué había y por qué salió, para que nadie lo vuelva a construir sin saber
+> que ya existió.
 
 ---
 
 ## 1. Decisiones de arquitectura
+
 
 | Decisión | Elección | Motivo |
 |---|---|---|
 | Framework | Next.js 14 (App Router) + TypeScript | Un solo proceso sirve la UI táctil y la API. En una pizzería no hay quien administre dos servicios. |
 | UI | Tailwind CSS, objetivos táctiles de 64 px mínimo | Se opera con el dedo, en un monitor POS, muchas veces con guantes. |
 | ORM | Prisma | Migraciones versionadas y tipos generados desde el esquema. |
-| Base de datos | SQLite en un punto de caja, PostgreSQL si hay varios | Cambiar de motor es un bloque `datasource`. El esquema no usa nada exclusivo de un motor. |
-| Excel | SheetJS (`xlsx`) | Único paquete que lee el BIFF antiguo de `.xls` que exporta Soft Restaurant, además de `.xlsx`. |
-| Impresión | ESC/POS crudo por socket TCP al puerto 9100 | No depende del driver de Windows ni de un diálogo de impresión que bloquee la pantalla táctil. |
+| Base de datos | PostgreSQL en Supabase | El mostrador, el teléfono del repartidor y el agente del local escriben en la misma base. Empezó en SQLite; el esquema no usa nada exclusivo de un motor. |
+| Datos del POS | Agente de PowerShell en el servidor del local | Soft Restaurant corre en otra máquina y no hay VPN con ella. El agente lee su SQL Server con autenticación de Windows y empuja a esta API: cero contraseñas guardadas y cero puertos abiertos. |
 
 ### Por qué el servidor manda
 
-Toda operación con dinero (abono, cierre, arqueo) se ejecuta en el servidor
-dentro de una transacción y queda firmada por un cajero. El cliente táctil no
-calcula saldos: los pide. Si dos cajas tocan al mismo chofer, la base de datos
-decide, no el orden en que llegaron los clics.
+El navegador no calcula nada que importe: lo pide. Los minutos que lleva
+esperando un pedido se miden contra el reloj del **servidor**, no contra el del
+equipo del mostrador, que puede estar desfasado media hora sin que nadie lo
+note. El tablero mide el desfase en cada lectura y corrige.
+
+Toda escritura queda firmada por un usuario y asentada en la bitácora. Si dos
+pantallas tocan la misma moto, la base de datos decide, no el orden en que
+llegaron los clics.
 
 ---
 
 ## 2. Tres invariantes que el resto del sistema da por ciertas
 
 **1. El dinero es un entero en céntimos.** Nunca un `Float`. CRC tiene
-exponente ISO 4217 de 2, así que ₡12.500 se guarda como `1250000`. El factor
-sale de una tabla de exponentes, no de un `× 100` reflejo. Un arqueo de caja
-con aritmética de punto flotante acumula errores de céntimos que luego nadie
-puede explicar. Toda la conversión vive en `src/lib/money/money.ts`.
+exponente ISO 4217 de 2, así que ₡12.500 se guardan como `1250000`. El factor
+sale de una tabla de exponentes, no de un `× 100` reflejo. Toda la conversión
+vive en `src/lib/money/money.ts`. Hoy el dinero que queda son los gastos de
+taller y el total que el repartidor tiene que cobrar; la regla sigue en pie
+igual. Las coordenadas sí son `Float`: la regla es del dinero, no de todo
+número.
 
-**2. No se guardan saldos acumulados.** El saldo de abonos de un chofer y el
-widget de efectivo en caja son sumas derivadas (`SUM` sobre `abonos_efectivo`).
-Un contador denormalizado sería una segunda fuente de verdad que se
-desincroniza en cuanto se anula un abono.
+**2. El tiempo de espera se cuenta desde que el pedido entró al POS.** No desde
+que la moto salió. Es lo que el cliente vive: el que llamó hace cincuenta
+minutos esperó cincuenta minutos, aunque la moto saliera hace cinco. Además es
+el único dato del POS en el que se puede confiar: la marca de llegada se pone
+en bloque al cerrar las cuentas, y en la medición de agosto 242 pedidos tenían
+solo 88 horas distintas de llegada.
 
-**3. Los registros de dinero no se editan ni se borran.** Una corrección se
-asienta como un movimiento de reverso enlazado al original mediante
-`anulado_por_id`. La tabla `eventos_auditoria` es append-only y es la fuente
-de la pantalla de historial.
+**3. Los hechos no se editan ni se borran.** La tabla `eventos_auditoria` es
+append-only y es la fuente de la pantalla de historial. Una corrección es un
+evento nuevo, nunca la edición de uno viejo.
 
 ---
 
 ## 3. Estructura de carpetas
 
+
 ```
 Cierre Caja Expres/
-├── prisma/
-│   ├── schema.prisma            # Esquema completo, comentado
-│   └── seed/seed.ts             # Usuario inicial y repartidores de ejemplo
-├── docs/
-│   ├── ARQUITECTURA.md          # Este documento
-│   └── RESPALDOS.md             # Respaldo, restauración y tarea programada
-├── scripts/
-│   ├── verificar-parser.ts      # Parser de Excel y aritmética de moneda
-│   ├── verificar-esquema.ts     # Garantías de integridad de la base
-│   ├── verificar-servicios.ts   # Jornada completa de punta a punta
-│   ├── verificar-respaldo.ts    # Ciclo de respaldo y restauración
-│   ├── probar-impresora.ts      # Muestrario de las cuatro plantillas
-│   ├── respaldar.ts             # Copia verificada de la base
-│   ├── restaurar.ts             # Restauración con red de seguridad
-│   └── respaldo-diario.cmd      # Envoltorio para el Programador de tareas
-├── respaldos/                   # Copias verificadas (fuera de git)
-└── src/
-    ├── app/
-    │   ├── layout.tsx           # Tema oscuro, zoom bloqueado
-    │   ├── globals.css          # Objetivos táctiles y cifras tabulares
-    │   ├── acciones.ts          # Acciones de servidor del dashboard
-    │   ├── page.tsx             # Módulo 1: dashboard táctil
-    │   ├── entrar/              # Identificación del cajero por PIN
-    │   ├── importar/            # Módulo 3: carga de Excel
-    │   ├── cierre/              # Módulo 3: conciliación
-    │   ├── historial/           # Módulo 5: auditoría y reportería
-    │   └── repartidores/        # Módulo 4: CRUD de repartidores
-    ├── components/
-    │   ├── Numpad.tsx           # Teclado táctil, sirve para monto y PIN
-    │   ├── ModalAbono.tsx       # Módulo 2
-    │   ├── ModalMonto.tsx       # Captura de monto sin llamar al servidor
-    │   ├── ModalEntradaTurno.tsx # Marcar quién trabaja esta noche
-    │   ├── ImportadorExcel.tsx  # Módulo 3, carga
-    │   ├── PanelCierre.tsx      # Módulo 3, conciliación
-    │   ├── PanelChoferes.tsx    # Módulo 4
-    │   ├── PanelHistorial.tsx   # Módulo 5
-    │   ├── GrillaChoferes.tsx   # Tarjetas de repartidor
-    │   ├── BarraSuperior.tsx    # Widget de caja y accesos rápidos
-    │   └── FormularioEntrada.tsx
-    ├── lib/
-    │   ├── db/prisma.ts         # Cliente único
-    │   ├── excel/
-    │   │   ├── columnas.ts      # Detección de encabezado y sinónimos
-    │   │   ├── parser.ts        # Lectura de los dos formatos
-    │   │   └── consolidar.ts    # Fusión Blanco + Negro + parciales
-    │   ├── money/money.ts       # Céntimos, formato, conciliación, arqueo
-    │   ├── fechas.ts            # Día operativo que cruza la medianoche
-    │   └── print/
-    │       ├── documento.ts     # Bloques, render a texto y a ESC/POS
-    │       ├── plantillas.ts    # Los cuatro tiquetes
-    │       └── impresora.ts     # Envío por socket TCP al puerto 9100
-    ├── server/
-    │   ├── errores.ts           # Errores de negocio con código
-    │   ├── validaciones.ts      # Esquemas Zod de toda entrada
-    │   └── services/
-    │       ├── abonos.ts        # Módulo 2, con idempotencia y reverso
-    │       ├── arqueos.ts       # Arqueo independiente
-    │       ├── auditoria.ts     # Bitácora append-only
-    │       ├── caja.ts          # Saldos derivados
-    │       ├── cargas.ts        # Importación en dos pasos
-    │       ├── cierres.ts       # Módulo 3, conciliación transaccional
-    │       ├── choferes.ts      # Módulo 4
-    │       ├── exportar.ts      # Reporte a Excel
-    │       ├── fotos.ts         # Foto del repartidor, en la base
-    │       ├── historial.ts     # Módulo 5, solo lectura
-    │       ├── pin.ts           # Derivación scrypt del PIN
-    │       ├── respaldo.ts      # VACUUM INTO, verificación y retención
-    │       ├── sesion.ts        # Cookie de sesión del cajero
-    │       └── turnos.ts        # Apertura implícita y candado
-    └── types/enums.ts           # Valores válidos de las columnas tipo enum
+|- prisma/
+|  |- schema.prisma            # Esquema completo, comentado
+|  `- seed/seed.ts             # Usuario inicial y repartidores de ejemplo
+|- docs/
+|  |- ARQUITECTURA.md          # Este documento
+|  |- RESPALDOS.md             # Respaldo, restauracion y tarea programada
+|  |- SUPABASE.md              # La base de PostgreSQL y el esquema de pruebas
+|  `- VERCEL.md                # Despliegue y variables
+|- scripts/
+|  |- base-de-pruebas.ts       # Envoltorio: corre un script contra `pruebas`
+|  |- guarda-pruebas.ts        # Se niega a borrar si no ve la base de pruebas
+|  |- verificar-*.ts           # Las comprobaciones automaticas
+|  |- volcar-datos.ts          # Volcado JSON de todas las tablas
+|  |- cargar-volcado.ts        # Y su pareja, que lo vuelve a meter
+|  |- vaciar-datos.ts          # Deja la base lista, conservando personas
+|  |- respaldar.ts             # Copia verificada
+|  |- restaurar.ts             # Restauracion con red de seguridad
+|  |- agente-pos/              # El agente de PowerShell del local
+|  `- sql/                     # Diagnostico del POS, solo lectura
+`- src/
+   |- app/
+   |  |- page.tsx              # La raiz: manda a cada quien a su pantalla
+   |  |- entregas/             # EL TABLERO. Pedidos sin entregar
+   |  |- historial/            # Bitacora filtrable
+   |  |- motos/                # Flota, gastos y reporteria de taller
+   |  |- repartidores/         # Alta, edicion y baja
+   |  |- clientes/             # Base del POS y ubicaciones por WhatsApp
+   |  |- mi/                   # Lo que ve el repartidor en su telefono
+   |  |- ubicacion/[token]/    # La pagina que abre el cliente desde WhatsApp
+   |  `- api/
+   |     |- pos/pedidos        # Lo que empuja el agente
+   |     |- pos/clientes       # Idem, con las fichas
+   |     `- whatsapp           # Aviso de Meta cuando llega una ubicacion
+   |- components/              # Pantallas y piezas de interfaz
+   |- lib/
+   |  |- entregas/espera.ts    # El semaforo: cortes y colores, en un solo lugar
+   |  |- money/money.ts        # Céntimos
+   |  |- fechas.ts             # Dia operativo con corte a las 06:00
+   |  |- clientes/             # Telefonos y direcciones de Costa Rica
+   |  `- texto.ts              # Normalizacion para comparar nombres
+   `- server/
+      |- permisos.ts           # La matriz de roles, en un solo lugar
+      |- config/modulos.ts     # Los módulos y sus pantallas
+      `- services/
+         |- entregas.ts        # El tablero
+         |- pos.ts             # Recepcion de lo que manda el agente
+         |- ubicaciones.ts     # Tandas de WhatsApp
+         |- motos.ts           # Flota
+         |- mantenimiento.ts   # Gastos y alertas
+         `- historial.ts       # Bitacora
 ```
 
 ---
 
 ## 4. Modelo de datos
 
-Nueve tablas. Las seis del requerimiento más tres que la operación exige.
+Dieciséis tablas, en tres grupos.
+
+**Las personas y la flota**
 
 | Tabla | Rol |
 |---|---|
-| `cajeros` | Firma de toda escritura de dinero. `cajero_id` se pedía en el requerimiento pero la tabla no existía. |
-| `choferes` | Repartidor. `id_mesero_softrestaurant` es la llave de cruce con el Excel. |
-| `turnos_chofer` | Un turno por chofer por jornada. |
-| `abonos_efectivo` | Entregas parciales durante el turno. |
-| `cargas_excel` | Un archivo importado. `hash_archivo` único. |
-| `ventas_chofer_excel` | Totales por chofer de **una** carga. Permite consolidar varios archivos sin releerlos y deja ver qué aportó cada uno. |
-| `cierres_chofer` | Conciliación final, inmutable. |
-| `arqueos_caja` | Conteo físico de la caja. |
-| `tiquetes` | Documento del tiquete congelado en JSON, para reimprimir idéntico. |
-| `eventos_auditoria` | Bitácora append-only del módulo 5. |
+| `cajeros` | Usuarios del sistema. Firma de toda escritura. |
+| `choferes` | Repartidor. `id_mesero_softrestaurant` es la llave de cruce con el POS. |
+| `fotos_chofer` | La foto, en la base y no en disco: Vercel no tiene disco persistente. |
+| `sesiones` | Un token puede pertenecer a un usuario **o** a un repartidor, nunca a los dos. |
+| `motocicletas` | La flota. La placa es la llave. |
+| `asignaciones_moto` | Quién trae qué moto, con candados de unicidad. |
+| `registros_mantenimiento` | Gasolina, taller, repuestos, RTV y seguro. |
+| `evidencias` / `lecturas_foto` | La foto de la bomba y lo que la IA leyó de ella. |
 
-### El candado de turno abierto
+**Los clientes y sus ubicaciones**
 
-`turnos_chofer.candado_turno_abierto` vale `chofer_id` mientras el turno está
-abierto y `NULL` cuando se cierra, con índice único. Como los `NULL` no
-colisionan en un índice único, la base de datos garantiza por sí sola un solo
-turno abierto por chofer. Es la diferencia entre una regla que se cumple y un
-`if` que alguien olvidará poner en el segundo endpoint.
+| Tabla | Rol |
+|---|---|
+| `clientes` | Las fichas del POS. `clave` conserva los ceros a la izquierda: 003863 no es 3863. |
+| `telefonos_cliente` | Los números de una ficha, con de dónde salió cada uno. |
+| `solicitudes_ubicacion` | Un pedido de ubicación por WhatsApp, con su token y su tanda. |
+| `ubicaciones_cliente` | El punto que mandó el cliente. Entra como PROPUESTA. |
+| `mensajes_ubicacion` | Lo que Meta avisó, para no procesar dos veces el mismo. |
 
-### Fórmula de conciliación
+**Los pedidos y la bitácora**
 
-```
-diferencia = (abonos_parciales + efectivo_entregado) − efectivo_esperado
-```
+| Tabla | Rol |
+|---|---|
+| `pedidos` | Lo que el agente trae del POS. `clave_del_pos` es única: el mismo pedido no entra dos veces. |
+| `eventos_auditoria` | Bitácora append-only. |
 
-Positiva es sobrante, negativa es faltante. El signo se decide una sola vez,
-en `calcularDiferencia`, y la UI solo lo pinta.
+### Los candados de asignación
 
----
+`asignaciones_moto.candado_chofer_activo` y `candado_moto_activa` valen su
+llave mientras la asignación está vigente y `NULL` cuando termina, con índice
+único. Como los `NULL` no colisionan en un índice único, la base garantiza por
+sí sola que un chofer no tenga dos motos ni una moto dos choferes. Es la
+diferencia entre una regla que se cumple y un `if` que alguien olvidará poner
+en el segundo endpoint.
 
-## 5. Ingesta de Excel
-
-Los `.xls` de Soft Restaurant no son una tabla limpia: traen el nombre del
-restaurante, el rango de fechas y filas en blanco antes de los títulos reales,
-y los títulos cambian de redacción entre versiones.
-
-El parser no asume una fila fija. Explora las primeras 30 filas, puntúa cada
-una contra una lista de sinónimos por campo y toma la que reconozca más
-columnas, exigiendo un mínimo de tres para no confundir un subtítulo con los
-títulos.
-
-**El formato se decide por las columnas presentes, no por el nombre del
-archivo**, porque el operador los renombra a diario:
-
-- Si aparece `numcheque` → **detallado**: una fila por cheque, hay que agrupar.
-- Si aparece `nopersonas` → **consolidado**: una fila por mesero, ya sumada.
-
-En el detallado los viajes se cuentan como **cheques distintos**, no como
-filas. Un pedido pagado con dos medios genera dos filas del mismo `numcheque`
-y contarlas por separado inflaría los viajes del repartidor.
-
-### Consolidación
-
-`consolidarArchivos` suma varios archivos por chofer, cruzando por `idmesero`
-cuando existe y por nombre normalizado cuando el reporte no lo trae. Si el
-mismo chofer entró primero por nombre y luego por id, las dos entradas se
-fusionan.
-
-Dos defensas activas:
-
-- Un archivo con el mismo SHA-256 que otro ya cargado se descarta y se avisa.
-- Cargar un corte `PARCIAL` junto al `TOTAL` del mismo tipo de reporte levanta
-  una advertencia por doble conteo. Advierte, no bloquea: hay operaciones donde
-  el total solo cubre la segunda mitad del turno, y esa es decisión del cajero.
+> **Lo que se quitó.** Siete tablas salieron con el cierre de caja:
+> `turnos_chofer`, `abonos_efectivo`, `cargas_excel`, `ventas_chofer_excel`,
+> `cierres_chofer`, `arqueos_caja` y `tiquetes`. La comprobación
+> `npm run test:esquema` falla si alguna reaparece.
 
 ---
 
-## 6. Servicios transaccionales
+## 5. El tablero de entregas
 
-Cada operación con dinero es una transacción única que abarca el movimiento,
-su asiento en la bitácora y el tiquete. Si algo falla, no queda nada a medias.
+Es la pantalla principal y la razón del proyecto. Vive encendida en el monitor
+del mostrador. `/` no la copia: redirige a ella.
 
-**El dashboard muestra solo a quien está en turno.** No todos trabajan todos
-los días, y una pantalla con las quince tarjetas del padrón obliga a buscar a
-la una de la mañana en vez de tocar. El cajero marca la entrada cuando el
-repartidor llega, y vuelve a abrir esa lista cuando llega alguien más en hora
-pico.
+### Qué cuenta como "sin entregar"
 
-**"Activo" y "en turno" son cosas distintas.** Activo, en la ficha del
-repartidor, significa que trabaja en el negocio. En turno significa que trabaja
-esta noche. La pantalla de gestión maneja lo primero y el dashboard lo segundo.
+Un pedido **a domicilio**, del **día operativo en curso**, que **no está
+entregado ni cancelado**. Las tres condiciones importan:
 
-**El turno también se abre solo si hace falta.** Si llega un abono de alguien a
-quien nadie marcó la entrada, el turno aparece igual. Es la red de seguridad:
-el dinero nunca se queda sin dónde registrarse por un olvido.
+- **A domicilio**, porque lo que se come en el local no tiene marca de llegada
+  y se quedaría en la lista para siempre, en rojo, sin que nadie pueda sacarlo.
+- **Del día operativo**, por lo mismo: un cheque que quedó abierto el martes no
+  es un pedido atrasado, es un cheque mal cerrado. Mezclarlos hace que el
+  tablero deje de servir a los tres días.
+- **Ni entregado ni cancelado**, que es lo que se pregunta.
 
-**Una entrada marcada por error se deshace, pero solo si no recibió dinero.**
-En cuanto hay un abono, el turno deja de ser un error de digitación y pasa a ser
-un movimiento de caja: se cierra por la pantalla de cierre, no se borra.
+### El semáforo
 
-**El doble toque no cobra dos veces.** El cliente manda una llave de
-idempotencia generada con `crypto.randomUUID()`. Si la misma llave vuelve, se
-devuelve el abono original sin sumar ni volver a imprimir. En una pantalla
-táctil el doble toque no es una hipótesis, es lo normal.
+Los cortes los pidió el dueño con números exactos. Viven en
+`src/lib/entregas/espera.ts` y en ningún `.tsx`: el mismo semáforo aparece en
+el tablero, en la pantalla del repartidor y, cuando exista, en el enlace de
+rastreo del cliente. Si cada pantalla decidiera sus cortes, un pedido saldría
+naranja en una y rojo en la otra, y nadie volvería a creerle al tablero.
 
-**Un abono no se edita, se reversa.** La anulación crea una fila de monto
-negativo enlazada a la original. El saldo sigue siendo una suma simple y el
-historial conserva las dos caras del error.
+| Espera | Color | Qué significa |
+|---|---|---|
+| 0 – 20 min | verde | a tiempo |
+| 21 – 34 min | naranja | apurado |
+| 35 – 55 min | rojo | tarde |
+| más de 55 min | rojo relleno **parpadeando** | crítico |
 
-**No se cierra sin el Excel cargado.** Cerrar antes de importar el reporte
-registraría todo lo entregado como sobrante y falsearía el arqueo. Existe un
-cierre forzado explícito, porque a veces hay que liquidar a alguien antes de
-que el reporte esté disponible, y negarlo solo lograría que el cierre se
-hiciera fuera del sistema.
+**El 35 es rojo.** El dueño pidió "21 a 35 naranja" y "35 a 55 rojo": el 35
+caía en los dos. Un pedido no puede estar de dos colores, y es mejor que el
+empate caiga del lado que avisa.
 
-**El arqueo se calcula después de los cierres**, porque el efectivo que el
-repartidor acaba de entregar ya está en la gaveta cuando el cajero la cuenta.
+**Los minutos redondean hacia abajo.** A los 20 minutos y 40 segundos el
+tablero dice 20 y pinta verde. Redondeando al más cercano diría 21 y saltaría a
+naranja antes de que el minuto 21 exista, y quien mira el reloj de la pared no
+entendería por qué.
 
-**La impresión ocurre fuera de la transacción.** El dinero ya entró; una
-impresora apagada no puede deshacer un movimiento correcto. El tiquete queda
-en cola y se reimprime cuando la impresora vuelve.
+**El crítico no es el rojo con más opacidad**, es el rojo relleno con letra
+clara, y es el único que parpadea. A dos metros de un monitor de mostrador un
+borde más fuerte no se distingue; un bloque de color sí. Y si parpadeara más de
+un tramo, el parpadeo dejaría de significar algo. El parpadeo no se apaga del
+todo: un bloque que desaparece se lee como un error de la pantalla.
+
+### Tres decisiones de la pantalla
+
+1. **El reloj corre en el navegador**, no en el servidor. Si solo se repintara
+   al llegar datos nuevos, un pedido se quedaría clavado en "19 min" quince
+   segundos y saltaría a "20". Se recalcula cada segundo contra la hora del
+   servidor, usando el desfase medido en la última lectura.
+2. **Se vuelve a leer la base cada quince segundos, no se recarga la página.**
+   Recargar perdería el desplazamiento y haría parpadear todo, que en un
+   monitor encendido ocho horas es insoportable.
+3. **Una lectura fallida no borra la pantalla.** Se queda lo último bueno y se
+   avisa. Una pantalla vacía se lee como "no hay pedidos", que es justo la
+   conclusión equivocada.
+
+### Cuando el agente se calla
+
+Si el último pedido sincronizado tiene más de tres minutos, el tablero lo dice
+arriba, en rojo. Un tablero que miente en silencio es peor que no tener
+tablero: alguien va a decidir en base a él.
+
+### Lo que el tablero NO hace
+
+No escribe. Ni una fila. Es una pantalla de vidrio sobre lo que el agente deja
+en `pedidos`. El día que haya que marcar una entrega a mano, eso va en otra
+acción y con su propio permiso, porque pasa a ser un hecho que alguien
+registró y no un dato leído.
 
 ---
 
-## 7. Tiquetes térmicos
+## 6. Interfaz táctil
 
-Un tiquete se guarda como documento de bloques en JSON, no como bytes ni como
-datos de origen. Los bytes no se pueden mostrar en pantalla, y guardar los
-datos haría que una reimpresión saliera distinta si mañana cambia la
-plantilla. Del documento salen las dos representaciones: texto plano de 48
-columnas para la vista previa y ESC/POS para el papel.
 
-Los montos van sin símbolo de moneda. El colón (U+20A1) no existe en ninguna
-página de códigos de las impresoras térmicas y saldría como basura, así que la
-moneda se declara una vez en el encabezado.
-
-Cuatro plantillas: abono parcial, cierre de turno, arqueo de caja y cierre
-grupal. Se revisan sin hardware con `npm run print:probar`.
-
----
-
-## 8. Interfaz táctil
-
-**Se entra con PIN antes de ver nada.** Todo abono y todo cierre queda firmado,
+**Se entra con PIN antes de ver nada.** Toda escritura queda firmada,
 y una firma que el navegador pueda elegir no vale nada. El cajero sale de la
 cookie de sesión en el servidor, nunca de lo que mande el cliente.
 
 **El teclado numérico es uno solo.** El mismo componente teclea el monto de un
-abono y el PIN de entrada. Las teclas miden 80 px porque el operador escribe
+gasto de taller y el PIN de entrada. Las teclas miden 80 px porque se escribe
 con el dedo, a veces con guante, y una tecla de tamaño de escritorio produce
 errores de digitación que después aparecen como faltantes de caja.
 
@@ -295,77 +283,32 @@ salieron de verdad.
 
 ---
 
-## 9. Importación y cierre
+## 7. Repartidores e historial
 
-**La importación va en dos pasos.** Primero se lee el archivo y se muestra a
-qué repartidor se imputa cada línea; solo después se escribe. Un mesero mal
-cruzado produce un faltante que aparece al cierre y que nadie sabe explicar.
-
-**El archivo se envía dos veces**, una para previsualizar y otra para
-confirmar, en vez de guardarse en el servidor entre los dos pasos. Un archivo
-temporal habría que limpiarlo, protegerlo y decidir qué hacer si la caja se
-reinicia a media carga. Releer 100 KB es más barato que todo eso.
-
-**El lote entra completo o no entra.** Si el tercer archivo está repetido, los
-dos primeros tampoco entran: media carga aplicada haría cerrar turnos contra un
-esperado incompleto sin que nadie lo note.
-
-**La clasificación no se adivina del nombre del archivo.** El operador los
-renombra a diario, así que Blanco o Negro y total o parcial los marca él.
-
-**Las cuentas del punto de venta se reconocen y se dejan pasar en silencio.**
-Soft Restaurant clasifica como repartidor a cuentas que no son personas, como
-la de pedidos para llevar. Aparecen en el reporte pero nadie las liquida, así
-que se listan en gris en vez de levantar la alerta de mesero sin registrar. Un
-aviso diario que el cajero aprende a ignorar deja de servir el día que falta un
-repartidor de verdad. La lista vive en `src/server/config/cuentasDelPos.ts`.
-
-**Las cuentas del punto de venta se reconocen y se dejan pasar en silencio.**
-Soft Restaurant clasifica como repartidor a cuentas que no son personas, como
-las de pedidos para llevar. Aparecen en el reporte pero nadie las liquida, así
-que se listan en gris en vez de levantar la alerta de mesero sin registrar. Un
-aviso diario que el cajero aprende a ignorar deja de servir el día que falta un
-repartidor de verdad. La lista vive en .
-
-**La diferencia del cierre se calcula en vivo en el cliente, pero la que queda
-asentada la recalcula el servidor.** Entre que se pinta la pantalla y se pulsa
-Confirmar, otra caja puede haber recibido un abono más.
-
-**El arqueo suma las entregas de este cierre antes de compararse.** El efectivo
-que el repartidor acaba de entregar ya está en la gaveta cuando el cajero la
-cuenta.
-
----
-
-## 10. Repartidores e historial
-
-**Un repartidor no se borra, se desactiva.** Sus turnos y cierres son historia
-contable, y las llaves foráneas están en Restrict para que un clic no pueda
-romperla. Tampoco se desactiva a alguien con turno abierto: dejaría abonos
-colgando de un turno que ya nadie puede cerrar.
+**Un repartidor no se borra, se desactiva.** Sus pedidos y sus asignaciones de
+moto son historia, y las llaves foráneas están en Restrict para que un clic no
+pueda romperla.
 
 **La foto se valida por sus bytes, no por su extensión.** El nombre y el
-Content-Type los controla quien sube el archivo, y esa carpeta la sirve el
-servidor web tal cual. El nombre guardado lleva un sufijo aleatorio para que al
-cambiar la foto el navegador no siga mostrando la anterior desde su caché.
+Content-Type los controla quien sube el archivo. El nombre guardado lleva un
+sufijo aleatorio para que al cambiar la foto el navegador no siga mostrando la
+anterior desde su caché.
 
 **El historial solo lee.** No hay una sola escritura en su servicio. Corregir
 la bitácora tendría que ser un evento nuevo, nunca la edición de uno viejo.
 
-**Las métricas no salen de la bitácora sino de los cierres.** Un evento guarda
-el monto de su movimiento, no el desglose por medio de pago: sumar eventos daría
-el efectivo pero nunca la tarjeta ni el SINPE.
-
 **Los filtros viven en la URL.** Así una consulta como "Toño, últimos cuatro
 días" sobrevive a una recarga y se puede pasar a otra persona como enlace.
 
-**El Excel exportado lleva números, no texto formateado.** Quien abre el reporte
-va a querer sumar columnas, y una columna de texto con separador de miles no se
-suma. El formato de moneda va como formato de celda.
+> **Lo que se quitó.** El historial abría con ocho métricas de dinero
+> (efectivo esperado, tarjeta, SINPE, faltantes, sobrantes) y dos botones de
+> exportar. Las métricas salían de las tablas de cierre, que ya no existen. La
+> columna `monto` del evento se quedó porque los gastos de taller la usan.
 
 ---
 
-## 11. Flota de motocicletas
+## 8. Flota de motocicletas
+
 
 El módulo vive aparte del dinero: comparte los repartidores y el cajero que
 registra, pero ningún cálculo de caja depende de él.
@@ -380,7 +323,8 @@ misma moto.
 `asignaciones_moto` es un historial, no un estado. La asignación vigente es la
 que no tiene fecha de fin. Dos columnas únicas anulables impiden a nivel de
 base de datos que un repartidor traiga dos motos o que una moto la traigan
-dos personas, por el mismo mecanismo que el candado de turno abierto.
+dos personas, con dos índices únicos sobre columnas que valen `NULL` cuando la
+asignación termina.
 
 `registros_mantenimiento` es la bitácora de gastos. Cada fila lleva el
 odómetro del momento, y ese número es el que gobierna las alertas.
@@ -520,11 +464,12 @@ cero: cero significaría que rodar no cuesta nada.
 
 ---
 
-## 12. La pantalla del repartidor
+## 9. La pantalla del repartidor
+
 
 El repartidor entra con su propio PIN y ve **solo lo suyo**: cuánto lleva
 entregado, sus entregas una por una, lo que el reporte de ventas dice que
-vendió, y su moto con sus avisos. No puede recibir dinero, cerrar turnos, ver
+trae pendiente, y su moto con sus avisos. No puede tocar la flota, ver
 la caja ni ver a los demás.
 
 ### Una sola puerta, dos llaves
@@ -599,51 +544,58 @@ verdad importaba.
 
 ---
 
-## 13. Estado actual
+## 10. Estado actual
 
-Terminado y verificado con 249 comprobaciones automáticas más pruebas manuales
-en el navegador:
+Verificado con 446 comprobaciones automáticas (`npm test`) más pruebas en el
+navegador:
 
-- Esquema completo y garantías de integridad de la base.
+- Esquema y garantías de integridad de la base.
 - Moneda en céntimos, día operativo que cruza la medianoche.
-- Parser de los dos formatos de Excel y consolidación multiarchivo.
-- Servicios de abono, anulación, carga, cierre, arqueo y CRUD de choferes.
-- Las cuatro plantillas de tiquete y el cliente de impresión.
-- Entrada por PIN, dashboard táctil y recepción de abonos parciales.
-- Importación de Excel con arrastrar y soltar, previsualización y consolidación.
-- Cierre con selección múltiple, diferencia en vivo y arqueo de caja.
-- CRUD de repartidores con foto, y bloqueo de bajas con turno abierto.
-- Historial filtrable, métricas, ficha de detalle, reimpresión y exportación.
-- Respaldo verificado, restauración con red de seguridad y aviso en pantalla
-  cuando la copia se atrasa.
-- Flota de motos: tablero con semáforo, préstamo automático de la comodín,
+- **El tablero de entregas**: semáforo, conteo por color, refresco en vivo y
+  aviso cuando el agente se calla.
+- **El agente del POS** corriendo en el servidor del local: 256 pedidos leídos
+  en producción, 100 % ligados a su cliente. Firma HMAC sobre el cuerpo crudo
+  con la hora dentro de la firma y ventana de 300 s.
+- **Clientes**: las fichas llegan del POS por el agente, con teléfonos
+  reconstruidos y calidad de dirección medida.
+- **Ubicaciones por WhatsApp**: tandas de 150, enlace con token, página que
+  abre el cliente y revisión de cada punto antes de aceptarlo.
+- **Flota de motos**: tablero con semáforo, préstamo automático de la comodín,
   registro táctil de gastos y reportería con costo por kilómetro.
+- Gasolina leída de la foto de la bomba por IA, con revisión humana.
+- Entrada por PIN, roles, y la puerta del repartidor separada de la del
+  mostrador.
+- Respaldo verificado, restauración con red de seguridad, volcado y carga JSON.
 
-Los cinco módulos del requerimiento están construidos, más el de flota.
-
-### Cómo probar sin tocar la contabilidad
+### Cómo probar sin tocar los datos del negocio
 
 `npm run demo` levanta la aplicación en el puerto 3100 contra el esquema de
-pruebas, con su propia carpeta de compilación para poder correr a la vez que
-el servidor de trabajo. `npm run demo:flota` le pone una flota de ejemplo.
-Sirve para enseñar el sistema o entrenar a alguien.
+pruebas, con su propia carpeta de compilación para poder correr a la vez que el
+servidor de trabajo. `npm run demo:flota` y `npm run demo:clientes` le ponen
+datos de ejemplo.
 
-Queda por decidir con el negocio:
+Las comprobaciones destructivas no confían en el envoltorio: cada una llama a
+`exigirBaseDePruebas()` y se niega a correr si no ve explícitamente el esquema
+`pruebas`. Esa guarda existe porque ya se perdió una base por no tenerla.
 
-1. **Corte de caja por cambio de cajero.** El efectivo teórico acumula todo el
-   día operativo y un arqueo no lo reinicia. Si en su operación la caja cambia
-   de manos a media noche, hace falta un corte que parta el conteo.
-2. **Exportación a PDF nativa.** Hoy el reporte se guarda en PDF desde el
-   diálogo de impresión del navegador, con una hoja de estilos pensada para
-   papel. Un PDF generado en el servidor solo hace falta si se va a enviar por
-   correo automáticamente.
-3. **Destino de los respaldos.** Ya están construidos y verificados, pero por
-   defecto van a una carpeta del mismo disco. Eso protege contra un borrado
-   accidental, no contra un disco dañado. Ver [RESPALDOS.md](RESPALDOS.md).
+### Lo que falta
+
+1. **La hora de entrega de verdad.** El POS marca las llegadas en bloque al
+   cerrar las cuentas, así que no sirve para medir. La única forma de tenerla
+   es que el repartidor marque "entregado" en su teléfono. Esa pantalla está
+   por hacer, y sin ella no se puede saber si el tablero está mejorando algo.
+2. **El enlace de rastreo para el cliente.** Un enlace por pedido que muestre
+   en qué va y, cuando haya GPS, por dónde viene la moto.
+3. **Cuatro códigos de mesero sin repartidor.** Los códigos 1, 2, 27 y 34
+   llevan 142 pedidos (55 %) y no calzan con nadie del padrón. Hay que
+   preguntar en el local quiénes son.
+4. **Destino de los respaldos.** Supabase hace los suyos; los nuestros van a
+   una carpeta del mismo disco. Ver [RESPALDOS.md](RESPALDOS.md).
 
 ---
 
-## 14. Las palabras que usa el negocio
+## 11. Las palabras que usa el negocio
+
 
 La pantalla dice **repartidor** y **usuario**. El código y la base de datos
 dicen `Chofer` y `Cajero`.
@@ -651,7 +603,7 @@ dicen `Chofer` y `Cajero`.
 No es descuido. Cambiar el nombre de las tablas obligaría a migrar todas las
 que las referencian, y a reescribir cada servicio, sin que el encargado de la
 caja notara ninguna diferencia. El nombre interno es un detalle de
-construcción; el que importa es el que se lee en la pantalla y en el tiquete.
+construcción; el que importa es el que se lee en la pantalla.
 
 Dos aclaraciones del negocio que conviene no olvidar:
 
@@ -665,7 +617,8 @@ las fotos pasaron a la base de datos y esa carpeta quedó sin uso.
 
 ---
 
-## 15. La gasolina leída de las fotos
+## 12. La gasolina leída de las fotos
+
 
 El repartidor ya no teclea el kilometraje ni el monto. Toma dos fotos, la del
 odómetro y la de la factura, y el servidor se las pasa a la IA: Gemini
@@ -716,30 +669,30 @@ repartidor, porque cada lectura cuesta.
 
 ---
 
-## 16. Roles, usuarios de caja y bitácora
+## 13. Roles, usuarios y bitácora
+
 
 Los tres roles existían en la base desde el principio, pero no gobernaban
-nada: cualquier usuario de caja podía importar el Excel del mes, editar la
-flota o borrar una evidencia. El rol solo se consultaba para el PIN de los
-repartidores.
+nada: cualquier usuario podía editar la flota o borrar una evidencia. El rol
+solo se consultaba para el PIN de los repartidores.
 
 La matriz está en `server/permisos.ts`, en un solo lugar y no repartida por las
 acciones, para poder discutirla con el negocio sin leer código:
 
 | Permiso | CAJERO | SUPERVISOR | ADMIN |
 |---|:--:|:--:|:--:|
-| `CAJA` — turnos, abonos, cierres, arqueos, reimpresión | ✅ | ✅ | ✅ |
-| `IMPORTAR` — Excel de Soft Restaurant | | ✅ | ✅ |
+| `OPERACION` — el tablero de entregas y el historial | ✅ | ✅ | ✅ |
 | `FLOTA` — motos, gastos, GPS, asignaciones | | ✅ | ✅ |
 | `REPARTIDORES` — alta, edición, baja y su PIN | | ✅ | ✅ |
 | `BORRAR_EVIDENCIA` — quitar una foto ya subida | | ✅ | ✅ |
-| `USUARIOS` — usuarios de caja, roles y PIN | | | ✅ |
+| `CLIENTES` — la base del POS y las tandas de WhatsApp | | ✅ | ✅ |
+| `USUARIOS` — usuarios del sistema, roles y PIN | | | ✅ |
 
 Se aplica en **dos capas**: la acción del servidor llama a `exigirCajeroCon()`
 y la página se niega a abrir con `tienePermiso()`. Esconder el botón no es una
 defensa; solo evita el error honesto de intentar algo que va a rebotar.
 
-### Usuarios de caja
+### Usuarios del sistema
 
 `/configuracion/usuarios` (solo ADMIN) crea usuarios, cambia su rol, los saca
 de servicio y resetea el PIN. Antes esto solo existía como comando de terminal,
@@ -747,8 +700,8 @@ lo que dejaba al negocio sin poder dar de alta a alguien fuera de horario y
 empujaba a que todos entraran con el mismo usuario, que es justo lo que rompe
 la firma de cada movimiento.
 
-Un usuario **nunca se borra**: se desactiva, porque sus abonos, cierres y
-arqueos quedan firmados por él. Dos reglas impiden quedarse afuera de la propia
+Un usuario **nunca se borra**: se desactiva, porque lo que registró queda
+firmado por él en la bitácora. Dos reglas impiden quedarse afuera de la propia
 aplicación: nadie se desactiva ni se degrada a sí mismo, y siempre queda al
 menos un ADMIN activo. Desactivar o cambiarle el PIN a alguien cierra sus
 sesiones abiertas; cambiarse el PIN propio no cierra la sesión desde la que se
@@ -767,7 +720,8 @@ El PIN nunca aparece en la bitácora, ni en el detalle ni en los valores.
 
 ---
 
-## 17. Navegación: cabecera, migas y pantallas de sistema
+## 14. Navegación: cabecera, migas y pantallas de sistema
+
 
 Cada pantalla ponía su propio enlace **Volver** a mano y el botón de salir solo
 existía en el tablero: para cerrar sesión había que volver al inicio primero.
@@ -818,7 +772,7 @@ centímetro del último campo.
 
 ---
 
-## 18. Listas: buscar, filtrar, paginar y exportar
+## 15. Listas: buscar, filtrar y paginar
 
 Ninguna lista tenía buscador. Con seis repartidores no se notaba; con la flota
 real y los gastos creciendo cada día, sí.
@@ -846,66 +800,64 @@ pasada y hoy la lista miente sin decirlo.
 - **Flota y repartidores**: en memoria. Son decenas de filas, no miles, y una
   consulta por tecla no se justifica. La comparación ignora tildes y mayúsculas
   (`paraBuscar`), porque nadie escribe "Fredón" con tilde con una mano ocupada.
-- **Gastos de flota**: contra la base, con `skip`/`take` y su propio conteo.
-  Esa lista crece para siempre; traer mil filas para mirar diez se siente en la
-  tableta.
-- **Historial de caja**: sigue con cursor ("ver más"), que es lo correcto para
-  una bitácora que se recorre hacia atrás y donde llegan filas nuevas mientras
-  se mira.
+- **Gastos de flota** y **clientes**: contra la base, con `skip`/`take` y su
+  propio conteo. Esas listas crecen para siempre; traer mil filas para mirar
+  diez se siente en la tableta.
+- **Historial**: con cursor ("ver más"), que es lo correcto para una bitácora
+  que se recorre hacia atrás y donde llegan filas nuevas mientras se mira.
+- **El tablero de entregas** no se filtra ni se pagina. Son los pedidos
+  pendientes de esta noche, que caben en una pantalla. Hay un tope de 200 filas
+  para que un error del agente no traiga diez mil al navegador del mostrador.
 
-### Exportación
+### No hay exportación
 
-El reporte de flota exporta a **Excel** (dos hojas: por moto y detalle) y a
-**CSV**, y se guarda en PDF por el diálogo de impresión, igual que el historial.
-El CSV usa punto y coma y lleva BOM: con coma y sin BOM, el Excel en español
-mete todo en una columna y estropea las tildes.
+Ni Excel, ni CSV, ni PDF, en ninguna pantalla. Se quitó toda por decisión del
+negocio, y la razón es buena: los datos están en la base y la base se consulta.
+Un archivo exportado es una copia que nace desactualizada, queda en el disco de
+la computadora del mostrador con los teléfonos de medio Alajuela, y nadie la
+borra.
 
-La exportación **lleva todo lo que cae en el filtro**, no solo la página a la
-vista. Descubrir que el archivo traía veinticinco filas de ciento treinta es de
-los errores que se notan tarde.
-
-### El centro `/reportes`
-
-Una sola puerta: se elige el rango una vez, se ven los indicadores del periodo
-(entró a la caja, efectivo esperado, diferencia neta, gasto de flota) y desde
-ahí se entra a cada reporte **con ese rango ya puesto**. No duplica los
-reportes, los enlaza: un tercer sitio donde consultar lo mismo sería un tercer
-sitio donde arreglar el mismo error de cálculo.
-
-## 19. La aplicación madre y sus módulos
-
-Esto empezó siendo el cierre de caja de la pizzería. Después entraron la flota
-de motos y los repartidores, y ahora entra la base de clientes, que no tiene
-nada que ver con el turno de la noche. Doce botones en una fila ya no decían
-nada: el de importar el Excel de ventas y el de pedirle la ubicación a diez mil
-clientes no son el mismo trabajo ni los hace la misma persona.
-
-Por eso hay **módulos**, declarados en un solo archivo
-(`src/server/config/modulos.ts`), que leen la barra de pestañas, los accesos
-del tablero y el tablero mismo. Antes la lista de accesos vivía dentro del
-componente de la barra, y agregar una pantalla era acordarse de dos lugares.
-
-| Módulo | Qué es | Estado |
-|---|---|---|
-| **Express** | La operación de cada noche: caja, turnos, repartidores, flota | funcionando |
-| **Clientes** | Las fichas del POS limpias y la ubicación exacta de cada casa | funcionando |
-| **Entregas** | El pedido desde que entra hasta que llega | por hacer |
-
-### Por qué Clientes no habla con Express
-
-Son dos problemas de tamaños distintos. Express ya opera todas las noches y no
-se puede romper. Clientes arranca con diez mil fichas sucias que hay que
-limpiar durante semanas. Unirlos hoy significaría que un error en la limpieza
-de direcciones apaga la caja.
-
-Se unen en el tercer módulo, **Entregas**: ahí el pedido de un cliente con
-ubicación buena se le asigna a un repartidor con moto. Ese es el único punto
-donde los dos mundos se tocan, y por eso es su propio módulo y no un agregado
-de ninguno de los dos.
+La lista de envío de una tanda de WhatsApp, que era el único archivo que de
+verdad se usaba, ahora es una pantalla (`/clientes/tanda/[numero]`) con los
+enlaces en vivo. Es mejor: se abre con un toque, siempre dice el estado de hoy
+y no deja nada guardado.
 
 ---
 
-## 20. Clientes y sus ubicaciones
+## 16. La aplicación madre y sus módulos
+
+Esto empezó siendo el cierre de caja de la pizzería. Después entraron la flota
+de motos y los repartidores, después la base de clientes, y al final salió el
+cierre. Doce botones en una fila ya no decían nada: el de los gastos de taller
+y el de pedirle la ubicación a diez mil clientes no son el mismo trabajo ni los
+hace la misma persona.
+
+Por eso hay **módulos**, declarados en un solo archivo
+(`src/server/config/modulos.ts`), que leen la barra de pestañas y el tablero.
+Antes la lista de accesos vivía dentro del componente de la barra, y agregar
+una pantalla era acordarse de dos lugares.
+
+| Módulo | Qué es | Pantallas |
+|---|---|---|
+| **Entregas** | Los pedidos sin entregar, en vivo desde el POS | tablero, historial |
+| **Flota** | Las motos, sus repartidores, el mantenimiento y los gastos | motos, repartidores, configuración |
+| **Clientes** | Las fichas del POS limpias y la ubicación de cada casa | base y ubicaciones |
+
+### Por qué Clientes no habla con Entregas
+
+Son dos problemas de tamaños distintos. Entregas lee la base del POS cada
+treinta segundos y no se puede romper. Clientes arranca con diez mil fichas
+sucias que hay que limpiar durante semanas.
+
+Se tocan en un solo punto, que ya existe: el pedido trae la clave del cliente
+y, cuando esa clave calza con una ficha nuestra, el tablero muestra el nombre y
+la dirección. Nada más. Ese punto está en `services/entregas.ts` y es un
+`include` de Prisma, no un acoplamiento.
+
+---
+
+## 17. Clientes y sus ubicaciones
+
 
 ### El problema
 
@@ -1026,10 +978,10 @@ prometió a los que ya respondieron.
 | Consulta de la base de clientes | `src/server/services/clientes.ts` |
 | La pantalla que abre el cliente | `src/app/ubicacion/[token]/` |
 | La pantalla de la pizzería | `src/app/clientes/` |
-| Cargar los dos archivos del POS | `npm run clientes:importar` |
 | Comprobaciones | `npm run test:ubicaciones` |
 
-## 21. El POS y el agente del local
+## 18. El POS y el agente del local
+
 
 ### Dónde está cada cosa
 

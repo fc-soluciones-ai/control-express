@@ -1,22 +1,17 @@
 /**
- * Modulo 5: pantalla de historial y reporteria.
+ * Pantalla de historial y auditoria.
  *
  * Los filtros llegan por la URL para que una consulta se pueda guardar,
  * recargar y compartir. Sin fecha explicita se muestra el dia operativo en
  * curso, que es lo que el cajero mira el 95 % de las veces.
  */
 
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { Cabecera } from '@/components/Cabecera';
 import { PanelHistorial } from '@/components/PanelHistorial';
 import { diaOperativoDe, rangoDiaOperativo } from '@/lib/fechas';
-import {
-  consultarHistorial,
-  metricasHistorial,
-  opcionesDeFiltro,
-} from '@/server/services/historial';
+import { consultarHistorial, opcionesDeFiltro } from '@/server/services/historial';
 import { cajeroDeSesion } from '@/server/services/sesion';
 import type { TipoEvento } from '@/types/enums';
 
@@ -73,13 +68,14 @@ export default async function Historial({ searchParams }: { searchParams: Parame
     tipos: searchParams.tipo ? ([searchParams.tipo] as TipoEvento[]) : undefined,
   };
 
-  const [historial, metricas, opciones] = await Promise.all([
+  const [historial, opciones] = await Promise.all([
     consultarHistorial({ ...filtros, limite: 100 }),
-    metricasHistorial({ desde: filtros.desde, hasta: filtros.hasta, choferId: filtros.choferId }),
     opcionesDeFiltro(),
   ]);
 
-  const nombreChofer = opciones.choferes.find((c) => c.id === filtros.choferId)?.nombre;
+  const nombreChofer = opciones.choferes.find(
+    (c: { id: string; nombre: string }) => c.id === filtros.choferId,
+  )?.nombre;
   const descripcionFiltro = [
     sinFiltroDeFecha
       ? `Dia operativo ${diaOperativo}`
@@ -98,14 +94,13 @@ export default async function Historial({ searchParams }: { searchParams: Parame
       />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Historial y reporteria</h1>
-          <p className="text-slate-400">Bitacora inalterable de todo movimiento de dinero</p>
+          <h1 className="text-3xl font-bold">Historial</h1>
+          <p className="text-slate-400">Bitacora inalterable de quien hizo que y cuando</p>
         </div>
       </div>
 
       <PanelHistorial
         filas={historial.filas}
-        metricas={metricas}
         hayMas={historial.hayMas}
         opciones={opciones}
         filtrosActuales={{
