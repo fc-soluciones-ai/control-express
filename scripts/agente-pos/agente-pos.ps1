@@ -61,6 +61,50 @@ function Anotar($texto) {
   if (-not $Autoprueba) { Add-Content -Path $rutaRegistro -Value $linea -Encoding utf8 }
 }
 
+<#
+  Lee la marca del disco y se asegura de que sea una fecha que SQL Server pueda
+  leer.
+
+  EL ERROR QUE ESTO ARREGLA
+
+  Set-Content escribe un salto de linea al final del archivo, y Get-Content
+  -Raw lo devuelve junto con la fecha. Esa cadena entraba tal cual en el
+  CONVERT(datetime, ..., 120) de la consulta, y el estilo 120 es estricto: con
+  un salto de linea adentro, SQL Server responde "Conversion failed when
+  converting date and/or time from character string" y el agente no arranca.
+
+  No se notaba porque el proceso que ya estaba corriendo guardaba la marca en
+  memoria y nunca releia el archivo. El agente funcionaba hasta que alguien lo
+  reiniciaba; ahi dejaba de arrancar y nadie sabia por que.
+
+  Si la marca esta rota o no se entiende, NO se cae: avisa y arranca con la
+  ventana de los ultimos dias, que es lo mismo que hace la primera vez. Un
+  agente que no manda nada es peor que uno que manda de mas.
+#>
+function LeerMarca($ruta, $dias) {
+  $porDefecto = (Get-Date).AddDays(-$dias).ToString('yyyy-MM-dd HH:mm:ss')
+
+  if (-not (Test-Path $ruta)) {
+    Anotar "Primera corrida: se mandan los ultimos $dias dias."
+    return $porDefecto
+  }
+
+  $texto = (Get-Content $ruta -Raw)
+  if ($null -ne $texto) { $texto = $texto.Trim() }
+
+  $fecha = [datetime]::MinValue
+  $formato = 'yyyy-MM-dd HH:mm:ss'
+  $ok = [datetime]::TryParseExact(
+    $texto, $formato, [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::None, [ref]$fecha)
+
+  if (-not $ok) {
+    Anotar "La marca del disco no se entiende ('$texto'). Se arranca con los ultimos $dias dias."
+    return $porDefecto
+  }
+  return $fecha.ToString($formato)
+}
+
 function Consultar($cadena, $sql) {
   $con = New-Object System.Data.SqlClient.SqlConnection $cadena
   $con.Open()
@@ -353,6 +397,30 @@ if ($Autoprueba) {
   Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
   Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
 
+  # --- La marca del disco -------------------------------------------------
+  #
+  # Es la que tumbo al agente en produccion: el salto de linea que deja
+  # Set-Content entraba en la consulta y SQL Server la rechazaba.
+  $tmp = Join-Path ([IO.Path]::GetTempPath()) ('marca-' + [guid]::NewGuid().ToString('N') + '.txt')
+
+  Set-Content -Path $tmp -Value '2026-10-03 16:36:30' -Encoding utf8
+  Comprobar 'la marca se lee sin el salto de linea' (LeerMarca $tmp 7) '2026-10-03 16:36:30'
+
+  Set-Content -Path $tmp -Value '   2026-10-03 16:36:30   ' -Encoding utf8
+  Comprobar 'y sin los espacios de los lados' (LeerMarca $tmp 7) '2026-10-03 16:36:30'
+
+  Set-Content -Path $tmp -Value 'cualquier cosa' -Encoding utf8
+  $recuperada = LeerMarca $tmp 7
+  Comprobar 'una marca rota no tumba el agente' ([bool]($recuperada -match '^\d{4}-\d{2}-\d{2} ')) 'True'
+
+  Set-Content -Path $tmp -Value '' -Encoding utf8
+  $vacia = LeerMarca $tmp 7
+  Comprobar 'una marca vacia tampoco' ([bool]($vacia -match '^\d{4}-\d{2}-\d{2} ')) 'True'
+
+  Comprobar 'sin archivo arranca con la ventana de dias' ([bool]((LeerMarca ($tmp + '.nohay') 7) -match '^\d{4}-\d{2}-\d{2} ')) 'True'
+
+  Remove-Item $tmp -ErrorAction SilentlyContinue
+
   Write-Host ''
   if ($fallos -eq 0) { Write-Host 'Todo bien.' } else { Write-Host "$fallos fallas"; exit 1 }
   exit 0
@@ -410,12 +478,7 @@ Anotar "Base: $baseElegida ($mejor pedidos). Solo lectura, con la cuenta de Wind
 # --- Desde cuando leer -------------------------------------------------------
 # La marca es la fecha del ultimo pedido que se mando bien. Se guarda en disco
 # para que reiniciar la maquina no vuelva a mandar la historia entera.
-if (Test-Path $rutaMarca) {
-  $desde = Get-Content $rutaMarca -Raw
-} else {
-  $desde = (Get-Date).AddDays(-$diasAlArrancar).ToString('yyyy-MM-dd HH:mm:ss')
-  Anotar "Primera corrida: se mandan los ultimos $diasAlArrancar dias."
-}
+$desde = LeerMarca $rutaMarca $diasAlArrancar
 
 function UnaPasada {
   param($desde)
