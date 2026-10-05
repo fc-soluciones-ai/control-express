@@ -19,15 +19,19 @@ eso se descubría cuando el cliente llamaba a reclamar.
 Un agente lee la base del punto de venta cada treinta segundos y empuja los
 pedidos aquí. El tablero los pinta con un semáforo:
 
-| Espera | Color |
+| Espera hasta el despacho | Color |
 |---|---|
-| 0 – 20 min | verde |
-| 21 – 34 min | naranja |
-| 35 – 55 min | rojo |
-| más de 55 min | rojo relleno, parpadeando |
+| 0 – 12 min | verde |
+| 13 – 20 min | naranja |
+| 21 – 30 min | rojo |
+| más de 30 min | rojo relleno, parpadeando |
 
-El reloj cuenta **desde que el pedido entró**, no desde que salió la moto: es
-lo que el cliente vive.
+El reloj arranca **cuando entra el pedido** y se detiene **cuando sale la
+moto**. Mide el despacho, que es lo que el local controla y lo único que este
+POS registra de forma confiable: la hora de llegada se marca en bloque.
+
+Hoy el promedio hasta el despacho es de **25 minutos**. Ese es el número que el
+tablero existe para bajar.
 
 ---
 

@@ -9,32 +9,39 @@
  * rojo en la otra, y nadie vuelve a creerle al tablero. Los cortes se definen
  * una sola vez, aqui, y no hay numeros de minutos escritos en ningun .tsx.
  *
- * DESDE CUANDO SE CUENTA
+ * QUE SE MIDE
  *
- * Desde que el pedido entro al POS (entroEn), no desde que el repartidor
- * salio. Es lo que el cliente vive: el que llamo hace cincuenta minutos
- * espero cincuenta minutos, sin importar que la moto saliera hace cinco.
- * Medir desde la salida es medir el desempeno del repartidor, que es otra
- * pregunta y para otra pantalla.
+ * Los minutos que lleva un pedido desde que entro al POS hasta que SALE la
+ * moto. El reloj arranca con la entrada y se detiene con el despacho.
  *
- * Tambien es el unico dato en el que se puede confiar. La marca de llegada del
- * POS se pone en bloque al cerrar las cuentas: en la medicion de agosto, 242
- * pedidos tenian solo 88 horas distintas de llegada. La hora de entrada, en
- * cambio, la escribe el sistema cuando se levanta el cheque.
+ * Las dos puntas se eligieron por el mismo motivo: son las unicas horas de
+ * este POS en las que se puede confiar. La entrada la escribe el sistema al
+ * levantar el cheque, y la salida se pone cuando el repartidor toma el
+ * pedido. La de llegada, en cambio, se marca en bloque: cinco pedidos que
+ * salieron a lo largo de dos horas aparecen llegando todos dentro del mismo
+ * medio minuto.
  *
  * LOS CORTES
  *
- * Los pidio el dueno asi: verde de 0 a 20, naranja de 21 a 35, rojo de 35 a 55
- * y parpadeando arriba de 55. El 35 aparecia en dos tramos; aqui el limite de
- * cada tramo es inclusivo, asi que el minuto 35 es rojo. Un pedido no puede
- * estar de dos colores a la vez y es mejor que el empate caiga del lado que
- * avisa.
+ * Primero fueron 20, 35 y 55, pensados para el tiempo total hasta la casa del
+ * cliente. Cuando el tablero paso a medir solo el despacho quedaron grandes:
+ * un pedido que tarda 55 minutos en SALIR llega a la hora y media.
+ *
+ * La medicion de la semana del 4 de octubre de 2026, sobre 195 pedidos, dio un
+ * promedio de 25 minutos hasta el despacho, con un maximo de 237. Con los
+ * cortes viejos, el pedido promedio salia naranja y el naranja dejaba de
+ * significar algo. Asi que el dueno los bajo a 12, 20 y 30: ahora el promedio
+ * de hoy cae en rojo, que es exactamente lo que hay que ver para poder
+ * bajarlo.
+ *
+ * El limite de cada tramo es inclusivo. Un pedido no puede estar de dos
+ * colores a la vez, y cuando hay empate conviene que caiga del lado que avisa.
  */
 
 /** Minuto en que termina cada tramo. El ultimo no tiene techo. */
-export const CORTE_VERDE = 20;
-export const CORTE_NARANJA = 34;
-export const CORTE_ROJO = 55;
+export const CORTE_VERDE = 12;
+export const CORTE_NARANJA = 20;
+export const CORTE_ROJO = 30;
 
 export const TRAMOS_DE_ESPERA = ['VERDE', 'NARANJA', 'ROJO', 'CRITICO', 'SIN_DATO'] as const;
 export type TramoDeEspera = (typeof TRAMOS_DE_ESPERA)[number];
@@ -51,9 +58,9 @@ export const ETIQUETA_TRAMO: Record<TramoDeEspera, string> = {
 /**
  * Minutos enteros transcurridos, redondeados hacia abajo.
  *
- * Hacia abajo y no al mas cercano: a los 20 minutos y 40 segundos el tablero
- * dice 20 y pinta verde. Redondeando al mas cercano diria 21 y saltaria a
- * naranja antes de que el minuto 21 exista, y quien mira el reloj de la pared
+ * Hacia abajo y no al mas cercano: a los 12 minutos y 40 segundos el tablero
+ * dice 12 y pinta verde. Redondeando al mas cercano diria 13 y saltaria a
+ * naranja antes de que el minuto 13 exista, y quien mira el reloj de la pared
  * no entenderia por que.
  *
  * Devuelve null cuando no hay fecha, y nunca un negativo: un pedido con hora

@@ -217,16 +217,23 @@ el tablero, en la pantalla del repartidor y, cuando exista, en el enlace de
 rastreo del cliente. Si cada pantalla decidiera sus cortes, un pedido saldría
 naranja en una y rojo en la otra, y nadie volvería a creerle al tablero.
 
-| Espera | Color | Qué significa |
+| Espera hasta el despacho | Color | Qué significa |
 |---|---|---|
-| 0 – 20 min | verde | a tiempo |
-| 21 – 34 min | naranja | apurado |
-| 35 – 55 min | rojo | tarde |
-| más de 55 min | rojo relleno **parpadeando** | crítico |
+| 0 – 12 min | verde | a tiempo |
+| 13 – 20 min | naranja | apurado |
+| 21 – 30 min | rojo | tarde |
+| más de 30 min | rojo relleno **parpadeando** | crítico |
 
-**El 35 es rojo.** El dueño pidió "21 a 35 naranja" y "35 a 55 rojo": el 35
-caía en los dos. Un pedido no puede estar de dos colores, y es mejor que el
-empate caiga del lado que avisa.
+**Por qué estos números.** Primero fueron 20, 35 y 55, pensados para el tiempo
+total hasta la casa del cliente. Cuando el tablero pasó a medir solo el
+despacho quedaron grandes: un pedido que tarda 55 minutos en *salir* llega a la
+hora y media. La medición de la semana del 4 de octubre de 2026, sobre 195
+pedidos, dio un promedio de **25 minutos hasta el despacho** y un máximo de
+237. Con los cortes viejos el pedido promedio salía naranja, y el naranja
+dejaba de significar algo.
+
+El límite de cada tramo es inclusivo: un pedido no puede estar de dos colores a
+la vez, y cuando hay empate conviene que caiga del lado que avisa.
 
 **Los minutos redondean hacia abajo.** A los 20 minutos y 40 segundos el
 tablero dice 20 y pinta verde. Redondeando al más cercano diría 21 y saltaría a

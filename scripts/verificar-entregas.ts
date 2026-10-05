@@ -69,11 +69,11 @@ function probarLosCortes(): void {
     minutosDesde(new Date('2026-10-04T19:30:00'), ahora),
     30,
   );
-  // Redondea hacia abajo: a los 20:40 todavia dice 20 y pinta verde.
+  // Redondea hacia abajo: a los 12:40 todavia dice 12 y pinta verde.
   comprobar(
     'redondea hacia abajo y no hacia arriba',
-    minutosDesde(new Date('2026-10-04T19:39:20'), ahora),
-    20,
+    minutosDesde(new Date('2026-10-04T19:47:20'), ahora),
+    12,
   );
   comprobar('sin fecha devuelve nada', minutosDesde(null, ahora), null);
   // Un POS con el reloj adelantado no debe producir minutos negativos.
@@ -85,7 +85,7 @@ function probarLosCortes(): void {
   comprobar('lee tambien una fecha en texto', minutosDesde('2026-10-04T19:45:00', ahora), 15);
 
   console.log('\n--- El conteo por tramo ---');
-  comprobar('cuenta cada color', contarPorTramo([0, 5, 25, 40, 90, 200, null]), {
+  comprobar('cuenta cada color', contarPorTramo([0, 5, 15, 25, 90, 200, null]), {
     VERDE: 2,
     NARANJA: 1,
     ROJO: 1,
@@ -122,9 +122,9 @@ async function probarElTablero(): Promise<void> {
     data: [
       // Los cuatro que si cuentan: entraron y nadie les ha puesto moto.
       m(`${marca}-a`, '101', haceMinutos(5), 'RECIBIDO'),
-      m(`${marca}-b`, '102', haceMinutos(25), 'EN_COCINA'),
-      m(`${marca}-c`, '103', haceMinutos(45), 'RECIBIDO'),
-      m(`${marca}-d`, '104', haceMinutos(75), 'RECIBIDO'),
+      m(`${marca}-b`, '102', haceMinutos(15), 'EN_COCINA'),
+      m(`${marca}-c`, '103', haceMinutos(25), 'RECIBIDO'),
+      m(`${marca}-d`, '104', haceMinutos(45), 'RECIBIDO'),
       // YA SALIO. Es la regla nueva: el tablero lo suelta cuando arranca la
       // moto, no cuando llega. Se cuenta como despachado y nada mas.
       m(`${marca}-e`, '105', haceMinutos(90), 'EN_CAMINO', chofer.id),
