@@ -864,8 +864,22 @@ model Pedido {
   /// La columna "otros" del POS, que en este negocio es SINPE.
   sinpe    Int @default(0)
 
+  // --- De donde salio el estado ---------------------------------------------
+  //
+  // Las dos senales con las que se decide si un pedido sigue vivo. Se guardan
+  // y no solo se usan porque, cuando el tablero sale vacio, la pregunta es
+  // siempre cual de las dos lo apago, y sin esto hay que ir a adivinar al
+  // servidor del local.
+
+  /// true = la cuenta sigue ABIERTA en dbo.tempcheques: el pedido esta vivo.
+  /// false = ya paso a dbo.cheques, liquidado con el cierre del turno.
+  abierta Boolean @default(false)
+
+  /// El bit `pagado` del POS. En un domicilio se cobra al entregar.
+  pagado Boolean @default(false)
+
   /// RECIBIDO | EN_COCINA | ASIGNADO | EN_CAMINO | ENTREGADO | CANCELADO
-  /// Se deriva de las marcas de arriba al recibirlo. Es lo que ve el cliente.
+  /// Se deriva de las dos de arriba. Es lo que ve el tablero.
   estado String
 
   /// Cuando el agente lo mando por ultima vez.

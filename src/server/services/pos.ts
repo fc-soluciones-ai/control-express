@@ -295,6 +295,10 @@ export async function sincronizarPedidos(
         ...marcas,
         esADomicilio: crudo.esADomicilio ?? false,
         cancelado: crudo.cancelado ?? false,
+        // Se guardan para poder explicar por que un pedido salio o no salio
+        // en el tablero, sin tener que ir a mirar la base del local.
+        abierta: crudo.abierta ?? false,
+        pagado: crudo.pagado ?? false,
         // El POS lo manda en colones con decimales; aqui todo el dinero son
         // centimos enteros. Ver lib/money/money.ts.
         total: aCentimos(Number(crudo.total ?? 0)),
