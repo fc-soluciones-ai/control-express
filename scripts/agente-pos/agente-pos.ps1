@@ -152,6 +152,37 @@ function Firmar($secreto, $hora, $cuerpo) {
 }
 
 <#
+  El cuerpo como bytes UTF-8, que es lo mismo que se firma.
+
+  EL 401 DEL CATALOGO DE CLIENTES
+
+  Invoke-RestMethod, en Windows PowerShell 5.1, recibe el cuerpo como texto y
+  lo codifica por su cuenta antes de mandarlo. Con un content-type que no dice
+  charset, NO usa UTF-8: usa la pagina de codigos de Windows. Firmar, en
+  cambio, siempre convierte a UTF-8.
+
+  Medido con una escucha local, con un nombre de cliente de verdad:
+
+    lo que se firma:  47 bytes   {"clientes":[{"nombre":"JOSE PEREZ MUNOZ"}]}
+    lo que se manda:  44 bytes   con las tildes y la enie destrozadas
+
+  Tres bytes de diferencia, tres firmas distintas, 401.
+
+  Los pedidos nunca fallaron porque su cuerpo es solo folios, fechas y numeros:
+  ASCII puro, donde las dos codificaciones dan lo mismo. El catalogo de
+  clientes lleva nombres y direcciones de Alajuela, con tildes y enies en casi
+  todas las filas, y fallaba entero.
+
+  Mandando los bytes ya convertidos, PowerShell no los vuelve a tocar.
+#>
+function ComoCuerpo($texto) {
+  # La coma es obligatoria: sin ella PowerShell desarma el arreglo al
+  # devolverlo y lo que sale es un Object[] de bytes sueltos, no un byte[].
+  # Es el mismo detalle que en Consultar con la DataTable.
+  return ,[System.Text.Encoding]::UTF8.GetBytes($texto)
+}
+
+<#
   Una fecha del POS, en ISO y CON LA ZONA PUESTA.
 
   SEIS HORAS DE DIFERENCIA
@@ -429,6 +460,22 @@ if ($Autoprueba) {
   Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
   Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
 
+  # --- El cuerpo que se manda ---------------------------------------------
+  #
+  # Es el error que tumbaba el catalogo de clientes con un 401: se firmaba el
+  # texto en UTF-8 y PowerShell mandaba otra cosa.
+  $conTildes = '{"clientes":[{"nombre":"JOS' + [char]0x00C9 + ' PEREZ MU' + [char]0x00D1 + 'OZ"}]}'
+  $bytes = ComoCuerpo $conTildes
+  Comprobar 'el cuerpo viaja como bytes' ($bytes -is [byte[]]) 'True'
+  # Dos caracteres acentuados ocupan dos bytes cada uno en UTF-8, asi que el
+  # cuerpo pesa dos bytes mas que su largo en caracteres.
+  Comprobar 'y en UTF-8, no en la pagina de codigos de Windows' $bytes.Length ($conTildes.Length + 2)
+  Comprobar 'son los mismos bytes que se firman' `
+    ([System.BitConverter]::ToString($bytes)) `
+    ([System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($conTildes)))
+  $soloAscii = '{"pedidos":[{"folio":"12345"}]}'
+  Comprobar 'un cuerpo sin tildes pesa lo mismo' (ComoCuerpo $soloAscii).Length $soloAscii.Length
+
   # --- Las cuentas abiertas -----------------------------------------------
   #
   # Es el error que hacia que el tablero no pudiera funcionar: el agente leia
@@ -655,10 +702,11 @@ function UnaPasada {
   $cabeceras = @{
     'x-agente-firma' = (Firmar $config.secreto $hora $cuerpo)
     'x-agente-hora'  = $hora
-    'content-type'   = 'application/json'
+    'content-type'   = 'application/json; charset=utf-8'
   }
 
-  $respuesta = Invoke-RestMethod -Uri $config.url -Method Post -Headers $cabeceras -Body $cuerpo -TimeoutSec 60
+  $respuesta = Invoke-RestMethod -Uri $config.url -Method Post -Headers $cabeceras `
+    -Body (ComoCuerpo $cuerpo) -TimeoutSec 60
   Anotar ("Mandados {0}: {1} nuevos, {2} actualizados, {3} ligados a cliente, {4} a repartidor" -f `
       $respuesta.recibidos, $respuesta.nuevos, $respuesta.actualizados, `
       $respuesta.ligadosACliente, $respuesta.ligadosARepartidor)
@@ -719,9 +767,10 @@ function MandarClientes($lista) {
   $cabeceras = @{
     'x-agente-firma' = (Firmar $config.secreto $hora $cuerpo)
     'x-agente-hora'  = $hora
-    'content-type'   = 'application/json'
+    'content-type'   = 'application/json; charset=utf-8'
   }
-  return Invoke-RestMethod -Uri $urlClientes -Method Post -Headers $cabeceras -Body $cuerpo -TimeoutSec 120
+  return Invoke-RestMethod -Uri $urlClientes -Method Post -Headers $cabeceras `
+    -Body (ComoCuerpo $cuerpo) -TimeoutSec 120
 }
 
 <#
