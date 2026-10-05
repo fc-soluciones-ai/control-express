@@ -49,9 +49,10 @@ export default async function Entregas() {
       />
 
       <div className="mb-5">
-        <h1 className="text-3xl font-bold">Pedidos sin entregar</h1>
+        <h1 className="text-3xl font-bold">Pedidos sin despachar</h1>
         <p className="text-slate-400">
-          En vivo desde el sistema de la pizzeria. El reloj cuenta desde que entro el pedido.
+          En vivo desde el sistema de la pizzeria. El reloj cuenta desde que entro el pedido y
+          se detiene cuando sale la moto.
         </p>
       </div>
 

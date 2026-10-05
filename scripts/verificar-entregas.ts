@@ -117,35 +117,42 @@ async function probarElTablero(): Promise<void> {
     },
   });
 
-  // Cuatro pendientes, uno en cada color, mas los que NO deben aparecer.
+  // Cuatro sin despachar, uno en cada color, mas los que NO deben aparecer.
   await prisma.pedido.createMany({
     data: [
-      // Los cuatro que si cuentan.
+      // Los cuatro que si cuentan: entraron y nadie les ha puesto moto.
       m(`${marca}-a`, '101', haceMinutos(5), 'RECIBIDO'),
       m(`${marca}-b`, '102', haceMinutos(25), 'EN_COCINA'),
-      m(`${marca}-c`, '103', haceMinutos(45), 'EN_CAMINO', chofer.id),
-      m(`${marca}-d`, '104', haceMinutos(75), 'EN_CAMINO', chofer.id),
-      // Entregado: no se muestra, pero si se cuenta aparte.
-      m(`${marca}-e`, '105', haceMinutos(90), 'ENTREGADO'),
+      m(`${marca}-c`, '103', haceMinutos(45), 'RECIBIDO'),
+      m(`${marca}-d`, '104', haceMinutos(75), 'RECIBIDO'),
+      // YA SALIO. Es la regla nueva: el tablero lo suelta cuando arranca la
+      // moto, no cuando llega. Se cuenta como despachado y nada mas.
+      m(`${marca}-e`, '105', haceMinutos(90), 'EN_CAMINO', chofer.id),
       // Cancelado: no cuenta para nada.
       { ...m(`${marca}-f`, '106', haceMinutos(80), 'CANCELADO'), cancelado: true },
-      // Para comer en el local: no tiene marca de llegada nunca y se quedaria
-      // en rojo para siempre.
+      // Para comer en el local: no sale en ninguna moto y se quedaria en rojo
+      // para siempre.
       { ...m(`${marca}-g`, '107', haceMinutos(200), 'RECIBIDO'), esADomicilio: false },
       // De ayer: un cheque mal cerrado no es un pedido atrasado.
       m(`${marca}-h`, '108', new Date(desde.getTime() - 3_600_000), 'RECIBIDO'),
+      // Se resolvio sin que nadie le pusiera hora de salida: se cobro en el
+      // local o el cajero lo cerro. Si no se excluyera, se quedaria pegado
+      // arriba del tablero toda la noche.
+      m(`${marca}-i`, '109', haceMinutos(150), 'ENTREGADO'),
     ],
   });
 
   const tablero = await tableroDeEntregas();
 
-  comprobar('muestra solo los pendientes a domicilio de hoy', tablero.pendientes.length, 4);
+  comprobar('muestra solo los de hoy que no han salido', tablero.pendientes.length, 4);
   comprobar(
     'del mas viejo al mas nuevo',
     tablero.pendientes.map((p) => p.folio),
     ['104', '103', '102', '101'],
   );
-  comprobar('cuenta los entregados aparte', tablero.entregadosHoy, 1);
+  comprobar('el que ya salio no aparece', tablero.pendientes.some((p) => p.folio === '105'), false);
+  comprobar('ni el que se cerro sin salir', tablero.pendientes.some((p) => p.folio === '109'), false);
+  comprobar('cuenta los despachados aparte', tablero.despachadosHoy, 1);
   comprobar('reparte los colores', tablero.porTramo, {
     VERDE: 1,
     NARANJA: 1,
@@ -158,10 +165,9 @@ async function probarElTablero(): Promise<void> {
     colorDeEspera(tablero.pendientes[0]?.minutosEsperando ?? 0).tramo,
     'CRITICO',
   );
-  comprobar('trae el repartidor cuando esta ligado', tablero.pendientes[0]?.repartidor, 'Tono Vargas');
-  comprobar('y nada cuando no lo esta', tablero.pendientes[3]?.repartidor, null);
+  comprobar('todavia no tienen repartidor asignado', tablero.pendientes[0]?.repartidor, null);
   comprobar('dice cuando fue la ultima sincronizacion', tablero.ultimaSincronizacion !== null, true);
-  comprobar('y no viene recortado con ocho pedidos', tablero.recortado, false);
+  comprobar('y no viene recortado con nueve pedidos', tablero.recortado, false);
 
   await prisma.pedido.deleteMany();
   await prisma.chofer.delete({ where: { id: chofer.id } });
@@ -182,7 +188,9 @@ function m(clave: string, folio: string, entroEn: Date, estado: string, choferId
     // EN_CAMINO sin hora de salida seria incoherente con lo que deriva el
     // agente, asi que se pone.
     ...(estado === 'EN_CAMINO' ? { salioEn: new Date(entroEn.getTime() + 600_000) } : {}),
-    ...(estado === 'ENTREGADO' ? { llegoEn: new Date(entroEn.getTime() + 1_800_000) } : {}),
+    // El entregado de la prueba se cerro SIN hora de salida, que es el caso
+    // del pedido cobrado en el local.
+    ...(estado === 'ENTREGADO' ? { pagado: true } : {}),
   };
 }
 

@@ -178,17 +178,36 @@ en el segundo endpoint.
 Es la pantalla principal y la razón del proyecto. Vive encendida en el monitor
 del mostrador. `/` no la copia: redirige a ella.
 
-### Qué cuenta como "sin entregar"
+### El tablero mide el DESPACHO, no la entrega
 
-Un pedido **a domicilio**, del **día operativo en curso**, que **no está
-entregado ni cancelado**. Las tres condiciones importan:
+Un pedido sale de la lista cuando **arranca la moto**, no cuando el cliente
+abre la puerta. Lo pidió así el negocio y es lo correcto, por dos razones:
 
-- **A domicilio**, porque lo que se come en el local no tiene marca de llegada
-  y se quedaría en la lista para siempre, en rojo, sin que nadie pueda sacarlo.
+1. **Es lo que el local controla.** Que una pizza tarde cuarenta minutos en
+   salir es un problema de cocina, o de que no hay repartidor libre, y eso se
+   arregla desde el mostrador. Lo que pasa después, en la calle, no.
+2. **Es lo único que se puede medir hoy.** Este POS no tiene hora de entrega de
+   verdad: `arriborepartidor` se marca en bloque, de a diez pedidos a la vez.
+   La hora de salida se pone cuando el repartidor toma el pedido, y casi
+   siempre es real.
+
+El reloj responde una sola pregunta: cuánto lleva este cliente esperando a que
+su pedido **siquiera salga**.
+
+### Qué cuenta como "sin despachar"
+
+Un pedido **a domicilio**, del **día operativo en curso**, **sin hora de
+salida** y que **no esté resuelto**. Las cuatro condiciones importan:
+
+- **A domicilio**, porque lo que se come en el local no sale en ninguna moto y
+  se quedaría en la lista para siempre, en rojo, sin que nadie pueda sacarlo.
 - **Del día operativo**, por lo mismo: un cheque que quedó abierto el martes no
   es un pedido atrasado, es un cheque mal cerrado. Mezclarlos hace que el
   tablero deje de servir a los tres días.
-- **Ni entregado ni cancelado**, que es lo que se pregunta.
+- **Sin hora de salida**, que es la pregunta.
+- **Ni resuelto ni cancelado**, para el pedido que se cerró sin que nadie le
+  pusiera hora de salida: se cobró en el local, se anuló, o el cajero lo cerró
+  de otra manera. Sin esto se quedarían pegados arriba toda la noche.
 
 ### El semáforo
 

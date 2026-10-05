@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * El tablero de pedidos sin entregar.
+ * El tablero de pedidos sin despachar.
  *
  * Esta pantalla vive encendida en el monitor del mostrador. De eso salen tres
  * decisiones que no son de gusto:
@@ -42,11 +42,14 @@ const CADA_CUANTO_CORRE_EL_RELOJ = 1_000;
 /** Despues de esto, lo que se ve ya no es de fiar y se dice en pantalla. */
 const AGENTE_CALLADO_MINUTOS = 3;
 
+/**
+ * Hoy el POS solo usa RECIBIDO: nadie marca el empaquetado ni la asignacion.
+ * Los otros dos estan por si algun dia empiezan a marcarlos.
+ */
 const NOMBRE_ESTADO: Record<string, string> = {
   RECIBIDO: 'Entro',
   EN_COCINA: 'En cocina',
   ASIGNADO: 'Asignado',
-  EN_CAMINO: 'En camino',
 };
 
 export function TableroEntregas({ inicial }: { inicial: Datos }) {
@@ -127,7 +130,7 @@ export function TableroEntregas({ inicial }: { inicial: Datos }) {
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Contador
-          etiqueta="Sin entregar"
+          etiqueta="Sin despachar"
           valor={datos.pendientes.length}
           clases="border-borde bg-panel text-slate-100"
         />
@@ -156,9 +159,10 @@ export function TableroEntregas({ inicial }: { inicial: Datos }) {
 
       {datos.pendientes.length === 0 ? (
         <section className="tarjeta p-10 text-center">
-          <p className="text-2xl font-bold text-entrada">Todo entregado</p>
+          <p className="text-2xl font-bold text-entrada">Todo despachado</p>
           <p className="mt-2 text-slate-400">
-            No hay ningun pedido a domicilio pendiente en el dia operativo {datos.diaOperativo}.
+            No hay ningun pedido a domicilio esperando moto en el dia operativo{' '}
+            {datos.diaOperativo}.
           </p>
         </section>
       ) : (
@@ -171,8 +175,8 @@ export function TableroEntregas({ inicial }: { inicial: Datos }) {
 
       <footer className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
         <p>
-          Dia operativo {datos.diaOperativo} · {datos.entregadosHoy} entregado
-          {datos.entregadosHoy === 1 ? '' : 's'} hoy
+          Dia operativo {datos.diaOperativo} · {datos.despachadosHoy} despachado
+          {datos.despachadosHoy === 1 ? '' : 's'} hoy
           {datos.recortado ? ' · lista recortada, hay mas de los que se muestran' : ''}
         </p>
         <button
@@ -225,7 +229,8 @@ function Tarjeta({ pedido, minutos }: { pedido: PedidoPendiente; minutos: number
         <div>
           <p className="cifra text-xl font-bold text-slate-100">#{pedido.folio}</p>
           <p className={`text-xs uppercase tracking-wide ${color.secundario}`}>
-            {NOMBRE_ESTADO[pedido.estado] ?? pedido.estado} a las {hora(pedido.entroEn)}
+            {NOMBRE_ESTADO[pedido.estado] ?? pedido.estado} a las {hora(pedido.entroEn)} ·
+            sin salir
           </p>
         </div>
         <div className="text-right">
@@ -264,11 +269,6 @@ function Tarjeta({ pedido, minutos }: { pedido: PedidoPendiente; minutos: number
         </a>
       ) : null}
 
-      {pedido.salioEn ? (
-        <p className={`mt-2 text-xs ${color.secundario}`}>
-          La moto salio a las {hora(pedido.salioEn)}
-        </p>
-      ) : null}
     </article>
   );
 }
