@@ -105,6 +105,20 @@ function LeerMarca($ruta, $dias) {
   return $fecha.ToString($formato)
 }
 
+<#
+  Por donde iba el barrido del catalogo de clientes. Cero si no habia
+  empezado, o si el archivo quedo ilegible: volver a empezar el barrido no
+  rompe nada, solo cuesta unos minutos.
+#>
+function LeerPosicionCatalogo($ruta) {
+  if (-not (Test-Path $ruta)) { return 0 }
+  $texto = (Get-Content $ruta -Raw)
+  if ($null -ne $texto) { $texto = $texto.Trim() }
+  $n = 0
+  if ([int]::TryParse($texto, [ref]$n) -and $n -ge 0) { return $n }
+  return 0
+}
+
 function Consultar($cadena, $sql) {
   $con = New-Object System.Data.SqlClient.SqlConnection $cadena
   $con.Open()
@@ -460,6 +474,20 @@ if ($Autoprueba) {
   Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
   Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
 
+  # --- Por donde va el catalogo -------------------------------------------
+  #
+  # El barrido de las doce mil fichas se hace por pedazos para no dejar el
+  # tablero sin pedidos mientras corre.
+  $rutaPosicion = Join-Path ([IO.Path]::GetTempPath()) ('pos-' + [guid]::NewGuid().ToString('N') + '.txt')
+  Comprobar 'sin archivo, el catalogo empieza de cero' (LeerPosicionCatalogo $rutaPosicion) 0
+  Set-Content -Path $rutaPosicion -Value '3500' -Encoding utf8
+  Comprobar 'y si lo hay, sigue donde iba' (LeerPosicionCatalogo $rutaPosicion) 3500
+  Set-Content -Path $rutaPosicion -Value 'cualquier cosa' -Encoding utf8
+  Comprobar 'una posicion rota vuelve a empezar' (LeerPosicionCatalogo $rutaPosicion) 0
+  Set-Content -Path $rutaPosicion -Value '-5' -Encoding utf8
+  Comprobar 'y una negativa tambien' (LeerPosicionCatalogo $rutaPosicion) 0
+  Remove-Item $rutaPosicion -ErrorAction SilentlyContinue
+
   # --- El cuerpo que se manda ---------------------------------------------
   #
   # Es el error que tumbaba el catalogo de clientes con un 401: se firmaba el
@@ -802,23 +830,37 @@ function MandarClientesDe($pedidos) {
 }
 
 <#
-  La sincronizacion completa del catalogo.
+  El catalogo completo, PERO POR PEDAZOS.
 
-  Corre al arrancar y cada tantas horas. Es cara (doce mil fichas en tandas de
-  quinientas), por eso no va en cada pasada: lo urgente ya lo cubre
-  MandarClientesDe.
+  POR QUE NO SE HACE DE UN SOLO TIRON
+
+  Antes esto recorria las doce mil fichas enteras antes de mirar un solo
+  pedido, y tardaba unos doce minutos. O sea que cada vez que alguien
+  reiniciaba el agente, el tablero del mostrador se quedaba ciego doce
+  minutos: justo cuando mas falta hace, porque uno reinicia el agente cuando
+  algo no esta funcionando.
+
+  Ahora cada pasada manda unas pocas tandas y se guarda por donde iba. El
+  catalogo entero se termina en unos minutos repartidos, y entre pedazo y
+  pedazo los pedidos siguen entrando normal.
+
+  Nada de esto es urgente: el cliente que acaba de pedir por primera vez ya
+  entra por MandarClientesDe, con su pedido. Esto es solo el barrido de
+  mantenimiento.
 #>
-function SincronizarTodosLosClientes {
+function UnPedazoDelCatalogo {
   $total = Consultar $cadena "SELECT COUNT(*) AS n FROM dbo.clientes"
   $cuantos = [int]$total.Rows[0]['n']
-  Anotar "Sincronizando el catalogo de clientes: $cuantos fichas."
+
+  $hechos = LeerPosicionCatalogo $rutaPosicion
+  if ($hechos -eq 0) { Anotar "Repasando el catalogo de clientes: $cuantos fichas." }
 
   $tanda = 500
-  $hechos = 0
   $nuevos = 0
-  for ($desdeFila = 0; $desdeFila -lt $cuantos; $desdeFila += $tanda) {
-    $filas = Consultar $cadena "$SQL_CLIENTE ORDER BY c.idcliente OFFSET $desdeFila ROWS FETCH NEXT $tanda ROWS ONLY"
-    if ($null -eq $filas -or $filas.Rows.Count -eq 0) { break }
+  for ($i = 0; $i -lt $TANDAS_POR_PASADA; $i += 1) {
+    if ($hechos -ge $cuantos) { break }
+    $filas = Consultar $cadena "$SQL_CLIENTE ORDER BY c.idcliente OFFSET $hechos ROWS FETCH NEXT $tanda ROWS ONLY"
+    if ($null -eq $filas -or $filas.Rows.Count -eq 0) { $hechos = $cuantos; break }
     $lista = @()
     foreach ($f in $filas.Rows) { $lista += (ComoCliente $f) }
     $r = MandarClientes $lista
@@ -826,11 +868,22 @@ function SincronizarTodosLosClientes {
     if ($r) { $nuevos += [int]$r.nuevos }
     Anotar "  clientes $hechos de $cuantos"
   }
-  Anotar "Catalogo de clientes al dia: $hechos revisados, $nuevos nuevos."
-  Set-Content -Path $rutaClientes -Value (Get-Date -Format 'o') -Encoding utf8
+
+  if ($hechos -ge $cuantos) {
+    Anotar "Catalogo de clientes al dia: $cuantos revisados."
+    Set-Content -Path $rutaClientes -Value (Get-Date -Format 'o') -Encoding utf8
+    Set-Content -Path $rutaPosicion -Value '0' -Encoding utf8
+  } else {
+    Set-Content -Path $rutaPosicion -Value ([string]$hechos) -Encoding utf8
+  }
 }
 
+
 $rutaClientes = Join-Path $carpeta 'agente-pos.clientes.txt'
+$rutaPosicion = Join-Path $carpeta 'agente-pos.catalogo.txt'
+# Cuantas tandas de 500 fichas por pasada. Tres son unos quince segundos, que
+# es lo mas que se puede hacer esperar a un pedido sin que se note.
+$TANDAS_POR_PASADA = 3
 $horasClientes = 12
 if ($config.horasEntreCatalogos) { $horasClientes = [int]$config.horasEntreCatalogos }
 
@@ -851,10 +904,13 @@ if ($Probar -or $UnaVez) {
 Anotar "Agente arrancado. Una pasada cada $CadaSegundos segundos. Ctrl+C para parar."
 while ($true) {
   try {
-    # El catalogo completo va primero y de tarde en tarde: es caro y lo urgente
-    # ya lo cubren los clientes de cada pedido.
-    if (TocaElCatalogo) { SincronizarTodosLosClientes }
+    # LOS PEDIDOS VAN PRIMERO. SIEMPRE.
+    #
+    # Esto estaba al reves y por eso un reinicio dejaba el tablero ciego doce
+    # minutos. Los pedidos son para lo que existe el agente; el catalogo de
+    # clientes es mantenimiento y puede esperar treinta segundos mas.
     $desde = UnaPasada $desde
+    if (TocaElCatalogo -or (LeerPosicionCatalogo $rutaPosicion) -gt 0) { UnPedazoDelCatalogo }
   } catch {
     # Que se caiga el internet del local es normal y no es motivo para que el
     # agente muera: se anota y se reintenta en la siguiente pasada.
