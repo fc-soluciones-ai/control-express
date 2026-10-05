@@ -89,14 +89,18 @@ async function main(): Promise<void> {
   comprobar('con serie vacia', claveDelPos({ folio: '12345', serieFolio: '  ' }), '12345');
 
   console.log('\n--- En que punto va el pedido ---');
+  const d = (s: string) => new Date(s);
+  // Una cuenta ABIERTA, que es donde vive un pedido mientras el repartidor
+  // anda en la calle. Lo cerrado se prueba aparte, mas abajo.
   const vacias = {
+    abierta: true,
+    pagado: false,
     llegoEn: null,
     salioEn: null,
     asignadoEn: null,
     empaquetadoEn: null,
     cerradoEn: null,
   };
-  const d = (s: string) => new Date(s);
   comprobar('recien entrado', estadoDelPedido(vacias), 'RECIBIDO');
   comprobar('empaquetado', estadoDelPedido({ ...vacias, empaquetadoEn: d('2026-10-04T19:20:00Z') }), 'EN_COCINA');
   comprobar('asignado', estadoDelPedido({ ...vacias, asignadoEn: d('2026-10-04T19:25:00Z') }), 'ASIGNADO');
@@ -109,6 +113,59 @@ async function main(): Promise<void> {
     'gana la marca mas avanzada',
     estadoDelPedido({ ...vacias, empaquetadoEn: d('2026-10-04T19:20:00Z'), salioEn: d('2026-10-04T19:30:00Z') }),
     'EN_CAMINO',
+  );
+
+  // ===========================================================================
+  console.log('\n--- La marca de cierre NO es la entrega ---');
+  // ===========================================================================
+  //
+  // Los numeros son de las cuentas abiertas del local, el 4 de octubre. El
+  // cierre cae UN SEGUNDO despues de la salida: no es la hora en que llego, es
+  // el momento en que el cajero cierra la cuenta y manda la moto. Tomarlo como
+  // entrega daba por terminado el pedido justo cuando empezaba a viajar, y
+  // dejaba el tablero vacio para siempre.
+  comprobar(
+    'el folio 197003 sigue en la calle',
+    estadoDelPedido({
+      ...vacias,
+      salioEn: d('2026-10-04T19:54:03-06:00'),
+      cerradoEn: d('2026-10-04T19:54:04-06:00'),
+    }),
+    'EN_CAMINO',
+  );
+  comprobar(
+    'y uno cerrado sin salir sigue en el local',
+    estadoDelPedido({ ...vacias, cerradoEn: d('2026-10-04T18:58:21-06:00') }),
+    'RECIBIDO',
+  );
+  // El folio 197002: pagado con tarjeta. En un domicilio se cobra al entregar.
+  comprobar(
+    'una cuenta ya cobrada se da por entregada',
+    estadoDelPedido({ ...vacias, salioEn: d('2026-10-04T19:53:10-06:00'), pagado: true }),
+    'ENTREGADO',
+  );
+  // Lo que ya paso a dbo.cheques se liquido con el turno: terminado.
+  comprobar(
+    'lo que ya no esta abierto esta terminado',
+    estadoDelPedido({ ...vacias, abierta: false }),
+    'ENTREGADO',
+  );
+  comprobar(
+    'pero un cancelado sigue siendo cancelado',
+    estadoDelPedido({ ...vacias, abierta: false, cancelado: true }),
+    'CANCELADO',
+  );
+  // Un agente viejo no manda `abierta`. Para el, todo venia de dbo.cheques.
+  comprobar(
+    'sin el dato, se asume cerrado como hacia el agente viejo',
+    estadoDelPedido({
+      llegoEn: null,
+      salioEn: null,
+      asignadoEn: null,
+      empaquetadoEn: null,
+      cerradoEn: null,
+    }),
+    'ENTREGADO',
   );
 
   // ===========================================================================
@@ -146,6 +203,8 @@ async function main(): Promise<void> {
       idMesero: '12',
       entroEn: '2026-10-04T19:05:00.000Z',
       salioEn: '2026-10-04T19:36:00.000Z',
+      // La cuenta sigue abierta: el repartidor anda en la calle con el.
+      abierta: true,
       esADomicilio: true,
       total: 12500.5,
     },

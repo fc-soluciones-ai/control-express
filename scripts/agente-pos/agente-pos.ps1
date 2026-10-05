@@ -221,6 +221,11 @@ function ComoPedido($fila) {
     cerradoEn     = (& $iso $fila['cierre'])
     esADomicilio  = ([string]$fila['iddireccion']).Trim() -ne ''
     cancelado     = [bool]$fila['cancelado']
+    # De cual de las dos tablas salio. La columna la pone la consulta.
+    abierta       = [bool]$fila['abierta']
+    # El bit del POS. Para un domicilio se cobra al entregar, asi que es lo
+    # mas parecido a "ya llego" que da este POS.
+    pagado        = [bool]$fila['pagado']
     total         = (& $plata $fila['total'])
     # El desglose de pago: es lo que durante anos salio del Excel de cada noche.
     efectivo      = (& $plata $fila['efectivo'])
@@ -333,6 +338,8 @@ if ($Autoprueba) {
   foreach ($c in @('fecha','empaquetado','asignacion','salidarepartidor','arriborepartidor','cierre')) {
     [void]$t.Columns.Add($c, [datetime])
   }
+  # De cual tabla vino y si ya se cobro. Las pone la consulta, no el POS.
+  foreach ($c in @('abierta','pagado')) { [void]$t.Columns.Add($c, [bool]) }
   $f = $t.NewRow()
   $f['folio'] = '12345'; $f['seriefolio'] = 'A'; $f['idclientedomicilio'] = '008686'
   $f['iddireccion'] = 'D1'; $f['telefonousadodomicilio'] = '87069355'; $f['idmesero'] = '12'
@@ -421,6 +428,41 @@ if ($Autoprueba) {
   Comprobar 'cuenta los de a domicilio' @($dos | Where-Object { $_.esADomicilio }).Count 1
   Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
   Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
+
+  # --- Las cuentas abiertas -----------------------------------------------
+  #
+  # Es el error que hacia que el tablero no pudiera funcionar: el agente leia
+  # solo los pedidos ya cerrados.
+  $fa = $t.NewRow()
+  $fa['folio'] = '197003'
+  $fa['fecha'] = [datetime]'2026-10-04T19:31:49'
+  $fa['salidarepartidor'] = [datetime]'2026-10-04T19:54:03'
+  $fa['cierre'] = [datetime]'2026-10-04T19:54:04'
+  $fa['iddireccion'] = '0001'
+  $fa['abierta'] = $true
+  $fa['pagado'] = $false
+  $pa = ComoPedido $fa
+  Comprobar 'una cuenta abierta viaja marcada' $pa.abierta 'True'
+  Comprobar 'y sin pagar' $pa.pagado 'False'
+  Comprobar 'el cierre se manda igual, lo interpreta el servidor' ([bool]($pa.cerradoEn -match '^2026-10-04T19:54:04')) 'True'
+
+  $fb = $t.NewRow()
+  $fb['folio'] = '197002'
+  $fb['fecha'] = [datetime]'2026-10-04T19:17:35'
+  $fb['iddireccion'] = '0001'
+  $fb['abierta'] = $true
+  $fb['pagado'] = $true
+  $pb = ComoPedido $fb
+  Comprobar 'una cobrada viaja como pagada' $pb.pagado 'True'
+
+  $fc = $t.NewRow()
+  $fc['folio'] = '86146'
+  $fc['fecha'] = [datetime]'2026-10-03T22:36:30'
+  $fc['iddireccion'] = '0001'
+  $fc['abierta'] = $false
+  $fc['pagado'] = $true
+  $pc = ComoPedido $fc
+  Comprobar 'una ya liquidada no viaja como abierta' $pc.abierta 'False'
 
   # --- La zona horaria de las fechas --------------------------------------
   #
@@ -523,17 +565,48 @@ $desde = LeerMarca $rutaMarca $diasAlArrancar
 function UnaPasada {
   param($desde)
 
+  # LAS DOS TABLAS, Y POR QUE
+  #
+  # Esto leia solo dbo.cheques, y por eso el tablero de entregas no podia
+  # funcionar. En Soft Restaurant un pedido vive en dbo.tempcheques mientras la
+  # cuenta esta ABIERTA, y solo pasa a dbo.cheques cuando se cierra el turno.
+  # Leyendo solo cheques, un pedido aparecia cuando el repartidor ya habia
+  # vuelto: todos llegaban como entregados o cancelados.
+  #
+  # Se vio corriendo el explorador dos veces con nueve minutos de diferencia:
+  # cheques clavado en 83.665 filas con el ultimo pedido de la noche anterior,
+  # y tempcheques subiendo de 69 a 70 mientras el local trabajaba.
+  #
+  # La columna `abierta` le dice al servidor de cual vino. Las dos tablas
+  # tienen las mismas columnas que se leen aqui, asi que el UNION es directo.
+  # `pagado` solo existe como dato util en las abiertas: lo que ya paso a
+  # cheques esta liquidado por definicion.
+  #
   # Se relee una ventana hacia atras a proposito: un pedido que entro hace
-  # media hora pudo cambiar de estado despues (salio, llego, se cancelo), y si
-  # solo miraramos lo nuevo esos cambios no llegarian nunca.
-  $sql = "
-    SELECT TOP 500
+  # media hora pudo cambiar de estado despues (salio, se cobro, se cancelo), y
+  # si solo miraramos lo nuevo esos cambios no llegarian nunca.
+  $columnas = "
       folio, seriefolio, fecha, empaquetado, asignacion,
       salidarepartidor, arriborepartidor, cierre,
       idcliente, idclientedomicilio, iddireccion, telefonousadodomicilio,
-      idmesero, cancelado, total, efectivo, tarjeta, otros
-    FROM dbo.cheques
-    WHERE fecha >= DATEADD(hour, -6, CONVERT(datetime, '$desde', 120))
+      idmesero, cancelado, total, efectivo, tarjeta, otros"
+
+  $corte = "DATEADD(hour, -6, CONVERT(datetime, '$desde', 120))"
+
+  $sql = "
+    SELECT TOP 500 * FROM (
+      SELECT $columnas,
+             CAST(1 AS bit) AS abierta,
+             CAST(pagado AS bit) AS pagado
+      FROM dbo.tempcheques
+      WHERE fecha >= $corte
+      UNION ALL
+      SELECT $columnas,
+             CAST(0 AS bit) AS abierta,
+             CAST(1 AS bit) AS pagado
+      FROM dbo.cheques
+      WHERE fecha >= $corte
+    ) AS todo
     ORDER BY fecha ASC"
 
   $filas = Consultar $cadena $sql
@@ -553,6 +626,8 @@ function UnaPasada {
     # .Count pasa a ser la cantidad de CAMPOS del pedido: catorce.
     $conSalida = @($pedidos | Where-Object { $_.salioEn }).Count
     $conLlegada = @($pedidos | Where-Object { $_.llegoEn }).Count
+    $abiertas = @($pedidos | Where-Object { $_.abierta -and -not $_.pagado -and -not $_.cancelado }).Count
+    Anotar "  de esos, $abiertas siguen abiertos: esos son los que salen en el tablero."
     $aDomicilio = @($pedidos | Where-Object { $_.esADomicilio }).Count
     Anotar "  a domicilio: $aDomicilio   con salida: $conSalida   con llegada: $conLlegada"
 
@@ -602,6 +677,10 @@ function UnaPasada {
 
   # La marca solo avanza cuando el envio salio bien. Si fallo, la proxima
   # pasada vuelve a intentar desde el mismo punto y no se pierde nada.
+  #
+  # Avanzar hasta la fecha mas nueva es seguro aunque haya cuentas abiertas: la
+  # ventana de seis horas hacia atras las vuelve a traer en cada pasada, que es
+  # justo lo que hace falta mientras un pedido sigue cambiando de estado.
   $ultima = ($filas.Rows | ForEach-Object { [datetime]$_['fecha'] } | Sort-Object | Select-Object -Last 1)
   $nueva = $ultima.ToString('yyyy-MM-dd HH:mm:ss')
   Set-Content -Path $rutaMarca -Value $nueva -Encoding utf8

@@ -101,6 +101,18 @@ export interface PedidoDelPos {
   cerradoEn?: string | null;
   esADomicilio?: boolean;
   cancelado?: boolean;
+  /**
+   * De cual de las dos tablas del POS salio.
+   *
+   * true  = dbo.tempcheques, la cuenta sigue ABIERTA. El pedido esta vivo.
+   * false = dbo.cheques, la cuenta ya se cerro con el turno. Esta liquidado.
+   *
+   * Opcional para no romper a un agente viejo que todavia no lo mande; sin el
+   * se asume false, que es lo que hacia el agente de antes.
+   */
+  abierta?: boolean;
+  /** El bit `pagado` del POS. Es lo mas parecido a "ya llego" que hay. */
+  pagado?: boolean;
   /** En colones con decimales, tal como lo tiene el POS. */
   total?: number | null;
   /** El desglose de pago, que es lo que durante anos salio del Excel. */
@@ -123,15 +135,39 @@ function fecha(valor: string | null | undefined): Date | null {
 }
 
 /**
- * En que punto va el pedido, para la pantalla del cliente.
+ * En que punto va el pedido.
  *
- * Se mira de atras hacia adelante: la marca mas avanzada manda. Hoy
- * empaquetado y asignacion vienen siempre vacias porque nadie las usa en el
- * POS, asi que en la practica un pedido salta de RECIBIDO a EN_CAMINO. El dia
- * que empiecen a marcarlas, esto se afina solo.
+ * LA MARCA DE CIERRE NO SIGNIFICA ENTREGADO
+ *
+ * Esto antes decia que un pedido con `cierre` puesto estaba entregado, y era
+ * falso. Mirando las cuentas abiertas del local se ve lo que pasa de verdad:
+ *
+ *   folio 197003   entro 19:31:49   salio 19:54:03   cierre 19:54:04
+ *   folio 196995   entro 18:37:06   salio 18:42:10   cierre 18:42:11
+ *
+ * El cierre cae UN SEGUNDO despues de la salida. No es la hora en que llego:
+ * es el momento en que el cajero cierra la cuenta y manda la moto. Tomarlo
+ * como entrega marcaba el pedido como terminado justo cuando empezaba a
+ * viajar, que es exactamente al reves.
+ *
+ * QUE SI SIRVE
+ *
+ * - `abierta = false`: el pedido ya paso a dbo.cheques, o sea que el turno se
+ *   cerro con el adentro. Terminado, sea como sea que haya terminado.
+ * - `pagado`: el POS lo marca cuando se cobra. Para un domicilio, se cobra al
+ *   entregar. Es lo mas parecido a "ya llego" que da este POS.
+ * - `llegoEn`: existe, pero casi nadie la marca, y cuando se marca cae tres
+ *   segundos despues de la salida. Se respeta cuando viene, y no se depende
+ *   de ella.
+ *
+ * La hora de entrega de verdad va a salir el dia que el repartidor la marque
+ * en su telefono. Hasta entonces esto es lo mejor que hay, y conviene saber
+ * que es una aproximacion.
  */
 export function estadoDelPedido(p: {
   cancelado?: boolean;
+  abierta?: boolean;
+  pagado?: boolean;
   llegoEn: Date | null;
   salioEn: Date | null;
   asignadoEn: Date | null;
@@ -139,13 +175,16 @@ export function estadoDelPedido(p: {
   cerradoEn: Date | null;
 }): string {
   if (p.cancelado) return 'CANCELADO';
+
+  // Un agente viejo no manda `abierta`. Para el, todo venia de dbo.cheques.
+  const abierta = p.abierta ?? false;
+  if (!abierta) return 'ENTREGADO';
+
   if (p.llegoEn) return 'ENTREGADO';
+  if (p.pagado) return 'ENTREGADO';
   if (p.salioEn) return 'EN_CAMINO';
   if (p.asignadoEn) return 'ASIGNADO';
   if (p.empaquetadoEn) return 'EN_COCINA';
-  // Un pedido cerrado sin marca de llegada es uno que se recogio en el local
-  // o que el cajero cerro sin marcar nada.
-  if (p.cerradoEn) return 'ENTREGADO';
   return 'RECIBIDO';
 }
 
@@ -239,7 +278,12 @@ export async function sincronizarPedidos(
         efectivo: aCentimos(Number(crudo.efectivo ?? 0)),
         tarjeta: aCentimos(Number(crudo.tarjeta ?? 0)),
         sinpe: aCentimos(Number(crudo.otros ?? 0)),
-        estado: estadoDelPedido({ cancelado: crudo.cancelado, ...marcas }),
+        estado: estadoDelPedido({
+          cancelado: crudo.cancelado,
+          abierta: crudo.abierta,
+          pagado: crudo.pagado,
+          ...marcas,
+        }),
         sincronizadoEn: new Date(),
       };
 
