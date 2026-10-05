@@ -152,17 +152,42 @@ function Firmar($secreto, $hora, $cuerpo) {
 }
 
 <#
-  Convierte una fila del POS en lo que entiende la aplicacion.
+  Una fecha del POS, en ISO y CON LA ZONA PUESTA.
 
-  Las fechas salen en ISO con zona, porque el servidor del local corre en hora
-  de Costa Rica y la aplicacion en UTC: mandar "14:30" a secas haria que un
-  pedido de la noche apareciera al dia siguiente.
+  SEIS HORAS DE DIFERENCIA
+
+  SQL Server guarda la hora de pared de esta maquina, sin zona: las 22:36 del
+  POS son las 22:36 de Costa Rica. Al leerla, .NET la entrega con Kind
+  'Unspecified', y ToString('o') sobre una fecha Unspecified escribe
+  "2026-10-03T22:36:30.0000000" SIN offset al final.
+
+  Del otro lado, el servidor corre en UTC y una fecha ISO sin offset la lee
+  como UTC. O sea: un pedido que entro a las 22:36 de la noche en Alajuela
+  quedaba guardado como si hubiera entrado a las 16:36 de la tarde. Seis horas
+  antes de lo que fue.
+
+  En el tablero eso no es un detalle: el semaforo mide los minutos que el
+  cliente lleva esperando. Con seis horas de ventaja, TODOS los pedidos
+  saldrian en rojo parpadeando desde el primer minuto, y el tablero no serviria
+  para nada.
+
+  SpecifyKind le dice a .NET lo que ya sabemos -que esa hora es la local de
+  esta maquina- y entonces ToString('o') si escribe el offset: el "-06:00" del
+  final. Con eso las dos puntas hablan del mismo instante.
+#>
+function FechaConZona($v) {
+  if ($null -eq $v -or $v -is [System.DBNull]) { return $null }
+  $local = [datetime]::SpecifyKind([datetime]$v, [System.DateTimeKind]::Local)
+  return $local.ToString('o')
+}
+
+<#
+  Convierte una fila del POS en lo que entiende la aplicacion.
 #>
 function ComoPedido($fila) {
   $iso = {
     param($v)
-    if ($null -eq $v -or $v -is [System.DBNull]) { return $null }
-    return ([datetime]$v).ToString('o')
+    return (FechaConZona $v)
   }
 
   # Un campo de dinero vacio no es un error, es un cero. El POS deja en nulo lo
@@ -396,6 +421,21 @@ if ($Autoprueba) {
   Comprobar 'cuenta los de a domicilio' @($dos | Where-Object { $_.esADomicilio }).Count 1
   Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
   Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
+
+  # --- La zona horaria de las fechas --------------------------------------
+  #
+  # Es el otro error que habria arruinado el tablero: sin el offset, el
+  # servidor leia las fechas como UTC y todo aparecia seis horas mas viejo.
+  $conZona = FechaConZona ([datetime]'2026-10-03T22:36:30')
+  Comprobar 'la fecha lleva la hora tal cual' ([bool]($conZona -match '^2026-10-03T22:36:30')) 'True'
+  Comprobar 'y termina con el offset de la zona' ([bool]($conZona -match '[+-]\d{2}:\d{2}$')) 'True'
+  Comprobar 'una fecha nula sigue siendo nula' ($null -eq (FechaConZona $null)) 'True'
+  Comprobar 'y un DBNull tambien' ($null -eq (FechaConZona ([System.DBNull]::Value))) 'True'
+
+  # El instante que entiende quien la lea tiene que ser el mismo que marca el
+  # reloj de la pared de la pizzeria.
+  $vuelta = [datetimeoffset]::Parse($conZona)
+  Comprobar 'al releerla da la misma hora local' ($vuelta.DateTime.ToString('yyyy-MM-dd HH:mm:ss')) '2026-10-03 22:36:30'
 
   # --- La marca del disco -------------------------------------------------
   #
