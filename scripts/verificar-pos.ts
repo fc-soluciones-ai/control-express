@@ -105,8 +105,8 @@ async function main(): Promise<void> {
   comprobar('empaquetado', estadoDelPedido({ ...vacias, empaquetadoEn: d('2026-10-04T19:20:00Z') }), 'EN_COCINA');
   comprobar('asignado', estadoDelPedido({ ...vacias, asignadoEn: d('2026-10-04T19:25:00Z') }), 'ASIGNADO');
   comprobar('en camino', estadoDelPedido({ ...vacias, salioEn: d('2026-10-04T19:30:00Z') }), 'EN_CAMINO');
-  comprobar('entregado', estadoDelPedido({ ...vacias, llegoEn: d('2026-10-04T20:00:00Z') }), 'ENTREGADO');
-  comprobar('cancelado manda sobre todo', estadoDelPedido({ ...vacias, cancelado: true, llegoEn: d('2026-10-04T20:00:00Z') }), 'CANCELADO');
+  comprobar('cobrado es entregado', estadoDelPedido({ ...vacias, pagado: true }), 'ENTREGADO');
+  comprobar('cancelado manda sobre todo', estadoDelPedido({ ...vacias, cancelado: true, pagado: true }), 'CANCELADO');
   // Hoy el POS no llena empaquetado ni asignacion, asi que un pedido salta de
   // RECIBIDO a EN_CAMINO. Gana siempre la marca mas avanzada.
   comprobar(
@@ -139,6 +139,18 @@ async function main(): Promise<void> {
     'RECIBIDO',
   );
   // El folio 197002: pagado con tarjeta. En un domicilio se cobra al entregar.
+  // Cinco pedidos que salieron a lo largo de dos horas "llegaron" todos dentro
+  // del mismo medio minuto, a las 20:22: el cajero marca las entregas de golpe.
+  // Si esa hora decidiera el estado, mataria la noche entera de un saque.
+  comprobar(
+    'la hora de llegada del POS no lo da por entregado',
+    estadoDelPedido({
+      ...vacias,
+      salioEn: d('2026-10-04T18:47:18-06:00'),
+      llegoEn: d('2026-10-04T20:22:12-06:00'),
+    }),
+    'EN_CAMINO',
+  );
   comprobar(
     'una cuenta ya cobrada se da por entregada',
     estadoDelPedido({ ...vacias, salioEn: d('2026-10-04T19:53:10-06:00'), pagado: true }),
@@ -242,15 +254,21 @@ async function main(): Promise<void> {
 
   console.log('\n--- El POS siempre manda ---');
 
-  // El mismo pedido, ahora con la llegada marcada.
+  // El mismo pedido, ahora cobrado. Se manda tambien la hora de llegada que
+  // puso el POS, para comprobar que se guarda aunque no decida nada.
   const r2 = await sincronizarPedidos([
-    { ...lote[0]!, llegoEn: '2026-10-04T20:01:00.000Z' },
+    { ...lote[0]!, pagado: true, llegoEn: '2026-10-04T20:01:00.000Z' },
   ]);
   comprobar('no se duplica', r2.nuevos, 0);
   comprobar('se actualiza', r2.actualizados, 1);
   comprobar('sigue habiendo dos pedidos', await prisma.pedido.count(), 2);
   const trasActualizar = await prisma.pedido.findUnique({ where: { claveDelPos: 'A-12345' } });
   comprobar('y ahora esta entregado', trasActualizar?.estado, 'ENTREGADO');
+  comprobar(
+    'la hora del POS se guarda aunque no decida',
+    trasActualizar?.llegoEn?.toISOString(),
+    '2026-10-04T20:01:00.000Z',
+  );
 
   console.log('\n--- Lo que viene mal ---');
 

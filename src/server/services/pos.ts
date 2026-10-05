@@ -150,19 +150,42 @@ function fecha(valor: string | null | undefined): Date | null {
  * como entrega marcaba el pedido como terminado justo cuando empezaba a
  * viajar, que es exactamente al reves.
  *
+ * LA HORA DE LLEGADA TAMPOCO SIRVE
+ *
+ * Esto tambien usaba `llegoEn`, y el tablero seguia saliendo vacio. Los
+ * pedidos de una noche real, leidos de la base:
+ *
+ *   #196994   entro 18:32:36   salio 18:47:18   "llego" 20:22:12
+ *   #196995   entro 18:37:06   salio 18:42:10   "llego" 20:22:17
+ *   #196996   entro 18:39:58   salio 20:22:23   "llego" 20:22:27
+ *   #197000   entro 19:12:03   salio 19:39:18   "llego" 20:22:39
+ *   #197003   entro 19:31:49   salio 19:54:03   "llego" 20:22:43
+ *
+ * Cinco pedidos que salieron a lo largo de dos horas "llegaron" todos dentro
+ * del mismo medio minuto, a las 20:22. Nadie marca la entrega al entregar: el
+ * cajero aprieta un boton y marca un monton de golpe. En noventa pedidos
+ * medidos salieron solo 28 horas distintas de llegada.
+ *
+ * Asi que `llegoEn` se guarda, porque es lo que dice el POS, pero NO decide
+ * nada. Usarla mataba todos los pedidos de la noche a las 20:22.
+ *
  * QUE SI SIRVE
  *
  * - `abierta = false`: el pedido ya paso a dbo.cheques, o sea que el turno se
  *   cerro con el adentro. Terminado, sea como sea que haya terminado.
  * - `pagado`: el POS lo marca cuando se cobra. Para un domicilio, se cobra al
  *   entregar. Es lo mas parecido a "ya llego" que da este POS.
- * - `llegoEn`: existe, pero casi nadie la marca, y cuando se marca cae tres
- *   segundos despues de la salida. Se respeta cuando viene, y no se depende
- *   de ella.
  *
- * La hora de entrega de verdad va a salir el dia que el repartidor la marque
- * en su telefono. Hasta entonces esto es lo mejor que hay, y conviene saber
- * que es una aproximacion.
+ * NADA DE ESTO ES LA VERDAD
+ *
+ * Este POS no tiene una hora de entrega de verdad. Lo que hay es una
+ * aproximacion: el pedido se muestra hasta que la caja lo cobra o lo cierra.
+ * Sirve para lo que importa, que es ver cual lleva mucho rato sin resolverse,
+ * y no sirve para medir al repartidor.
+ *
+ * La hora real va a existir el dia que el repartidor marque "entregado" en su
+ * telefono. Mientras tanto, conviene que quien mire el tablero sepa que el
+ * reloj se detiene cuando la caja cobra, no cuando el cliente abre la puerta.
  */
 export function estadoDelPedido(p: {
   cancelado?: boolean;
@@ -180,7 +203,7 @@ export function estadoDelPedido(p: {
   const abierta = p.abierta ?? false;
   if (!abierta) return 'ENTREGADO';
 
-  if (p.llegoEn) return 'ENTREGADO';
+  // Ojo: `llegoEn` NO entra aqui, a proposito. Ver el comentario de arriba.
   if (p.pagado) return 'ENTREGADO';
   if (p.salioEn) return 'EN_CAMINO';
   if (p.asignadoEn) return 'ASIGNADO';
