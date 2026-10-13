@@ -72,9 +72,23 @@ $archivos = @(
   (Join-Path $Carpeta 'restaurant.ini'),
   (Join-Path (Join-Path $Carpeta 'INIS') 'Empresa 1.ini')
 )
+# Test-Path se equivoca con algunos archivos (ocultos, de sistema): se usa .NET directo.
+$existentes = @()
 foreach ($a in $archivos) {
-  if (-not (Test-Path -LiteralPath $a)) { Write-Host "No existe el archivo: $a"; exit 1 }
+  if ([System.IO.File]::Exists($a)) { $existentes += $a }
+  else { Write-Host "  (no se encontro, se omite: $a)" }
 }
+if ($existentes.Count -eq 0) {
+  Write-Host ''
+  Write-Host "No se encontro ningun archivo de configuracion en: $Carpeta"
+  Write-Host 'Esto es lo que hay en esa carpeta:'
+  if ([System.IO.Directory]::Exists($Carpeta)) {
+    Get-ChildItem -LiteralPath $Carpeta -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(?i)ini|inis' } | ForEach-Object { Write-Host ('  ' + $_.Name) }
+  } else { Write-Host '  (la carpeta no existe)' }
+  Write-Host 'No se cambio nada.'
+  exit 1
+}
+$archivos = $existentes
 
 if ($Modo -eq 'Copia') {
   # El programa abierto ya leyo su configuracion: cambiar los archivos ahora no
