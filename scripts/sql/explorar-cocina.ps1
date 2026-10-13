@@ -287,7 +287,7 @@ Seccion '6. RENGLONES CON MODIFICADORES, MITADES Y COMENTARIOS (ultimos 14 dias)
   MostrarTabla (Consultar $cadena "
     SELECT d.foliodet AS cuenta, d.movimiento, d.cantidad, d.idproducto, d.precio,
            d.impuesto1, d.preciosinimpuestos, d.modificador, d.mitad,
-           d.idproductocompuesto, d.productocompuestoprincipal, d.nivel,
+           d.idproductocompuesto, d.productocompuestoprincipal,
            d.prioridadproduccion, d.idmeseroproducto
     FROM dbo.cheqdet d
     WHERE d.foliodet = (
