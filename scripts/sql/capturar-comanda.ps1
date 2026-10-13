@@ -210,8 +210,13 @@ try {
       $ultima = Get-Date
       Write-Host ("  Recibido: {0} ({1} bytes)" -f $i.nombre, $bytes.Length)
     }
-    # Con al menos una captura y 30 segundos de calma, se da por terminado.
-    if ($capturas.Count -gt 0 -and $ultima -and ((Get-Date) - $ultima).TotalSeconds -gt 30) { break }
+    # Se da por terminado con las 4 comandas esperadas y 20 segundos de calma, o con
+    # alguna captura y 3 minutos de calma (por si el POS manda menos de 4).
+    if ($ultima) {
+      $calma = ((Get-Date) - $ultima).TotalSeconds
+      if ($capturas.Count -ge 4 -and $calma -gt 20) { break }
+      if ($capturas.Count -gt 0 -and $calma -gt 180) { break }
+    }
     Start-Sleep -Milliseconds 300
   }
 } finally {
