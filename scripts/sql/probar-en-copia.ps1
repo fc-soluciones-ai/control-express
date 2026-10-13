@@ -395,7 +395,7 @@ Seccion '2. IMPRESORAS DE LA COPIA' {
   Escribir "  cocina real. Se desvian a '$IMPRESORA_SEGURA' SOLO EN LA COPIA."
   Escribir ''
   $resp = Read-Host '  Escriba SI para desviarlas'
-  if ($resp -cne 'SI') { Escribir '  No se desviaron. No se va a escribir ningun pedido.'; Escribir ''; return }
+  if (([string]$resp).Trim().ToUpper() -ne 'SI') { Escribir ('  No se desviaron (se recibio: [' + $resp + ']). No se va a escribir ningun pedido.'); Escribir ''; return }
   [void](Ejecutar $cadena "
     UPDATE dbo.estacionesareas SET impresora = '$IMPRESORA_SEGURA' WHERE ISNULL(impresora,'') <> '';
     UPDATE dbo.estaciones SET impresoracheques = '$IMPRESORA_SEGURA' WHERE ISNULL(impresoracheques,'') <> '';
@@ -449,7 +449,7 @@ Seccion '3. PEDIDO DE PRUEBA EN LA COPIA' {
   Escribir '  La cuenta lleva la marca APPTEST- en campoadicional2 para poder borrarla.'
   Escribir ''
   $resp = Read-Host '  Escriba SI para escribirla en la copia'
-  if ($resp -cne 'SI') { Escribir '  No se escribio nada.'; Escribir ''; return }
+  if (([string]$resp).Trim().ToUpper() -ne 'SI') { Escribir ('  No se escribio nada (se recibio: [' + $resp + '])'); Escribir ''; return }
 
   $colH = @((Consultar $cadena "SELECT c.name FROM sys.columns c WHERE c.object_id = OBJECT_ID('dbo.tempcheques') AND c.is_identity = 0 AND c.is_computed = 0 AND c.system_type_id <> 189 ORDER BY c.column_id").Rows | ForEach-Object { [string]$_['name'] })
   $colD = @((Consultar $cadena "SELECT c.name FROM sys.columns c WHERE c.object_id = OBJECT_ID('dbo.tempcheqdet') AND c.is_identity = 0 AND c.is_computed = 0 AND c.system_type_id <> 189 ORDER BY c.column_id").Rows | ForEach-Object { [string]$_['name'] })
