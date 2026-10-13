@@ -102,6 +102,9 @@ if ($Base -eq '') {
   $mejor = -1
   foreach ($fila in $bases.Rows) {
     $nombre = [string]$fila['name']
+    # Una copia de prueba nunca se elige sola: tendria mas pedidos que la real.
+    # Para mirarla a proposito, se pasa -Base con su nombre.
+    if ($nombre -match '(?i)_copia$') { continue }
     try {
       $r = Consultar "$raiz;Database=$nombre" `
         "IF OBJECT_ID('dbo.cheques','U') IS NULL SELECT -1 AS n ELSE SELECT COUNT(*) AS n FROM dbo.cheques"

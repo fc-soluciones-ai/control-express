@@ -194,6 +194,8 @@ foreach ($servidor in $servidores) {
   Escribir ""
 
   foreach ($nombre in $nombres) {
+    # Una copia de prueba nunca cuenta como candidata a ser la base real.
+    if ($nombre -match '(?i)_copia$') { continue }
     $cadena = "$raiz;Database=$nombre"
     $ventas = -1
     $ultima = ''

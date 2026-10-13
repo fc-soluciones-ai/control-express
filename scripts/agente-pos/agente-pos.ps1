@@ -106,6 +106,27 @@ function LeerMarca($ruta, $dias) {
 }
 
 <#
+  Una base que es una copia de prueba y no la de verdad.
+
+  POR QUE EXISTE ESTO
+
+  El agente elige la base que tenga MAS pedidos cerrados, porque en esta
+  instalacion la de produccion se llama "pruebas" y la que parece la buena esta
+  vacia. Con una copia de prueba al lado eso es una trampa: la copia nace con
+  los mismos pedidos que la original, y apenas se prueba cerrando cuentas en
+  ella pasa a tener MAS. Al reiniciar el agente, se pasaria a leer la copia en
+  silencio y el tablero empezaria a mostrar datos de prueba como si fueran
+  reales.
+
+  Por eso una base cuyo nombre termina en _copia nunca se elige sola. Si hace
+  falta apuntar el agente a una de ellas a proposito, se pone el nombre en el
+  archivo de configuracion, en el campo "base".
+#>
+function EsBaseDeCopia($nombre) {
+  return ([string]$nombre) -match '(?i)_copia$'
+}
+
+<#
   Por donde iba el barrido del catalogo de clientes. Cero si no habia
   empezado, o si el archivo quedo ilegible: volver a empezar el barrido no
   rompe nada, solo cuesta unos minutos.
@@ -474,6 +495,17 @@ if ($Autoprueba) {
   Comprobar 'cuenta los que ya salieron' @($dos | Where-Object { $_.salioEn }).Count 1
   Comprobar 'y los que no tienen ninguno' @($dos | Where-Object { $_.llegoEn }).Count 0
 
+  # --- Las copias de prueba no se eligen solas ----------------------------
+  #
+  # Una copia con mas pedidos que la real haria que el agente, al reiniciarse,
+  # se pasara a leerla sin avisar.
+  Comprobar 'la base de produccion no es una copia' (EsBaseDeCopia 'pruebas') 'False'
+  Comprobar 'la que parece buena tampoco' (EsBaseDeCopia 'softrestaurant95pro') 'False'
+  Comprobar 'una que termina en _copia si' (EsBaseDeCopia 'pruebas_copia') 'True'
+  Comprobar 'sin importar las mayusculas' (EsBaseDeCopia 'PRUEBAS_COPIA') 'True'
+  Comprobar 'copia a secas, sin guion bajo, no cuenta' (EsBaseDeCopia 'copia') 'False'
+  Comprobar 'ni una que la lleva en medio' (EsBaseDeCopia 'copia_de_pruebas') 'False'
+
   # --- Por donde va el catalogo -------------------------------------------
   #
   # El barrido de las doce mil fichas se hace por pedazos para no dejar el
@@ -609,6 +641,11 @@ foreach ($llave in @(
 }
 if ($instancias.Count -eq 0) { Anotar 'NO SE ENCONTRO SQL SERVER EN ESTA MAQUINA.'; exit 1 }
 
+# Una base fija en la configuracion manda sobre la eleccion automatica. Es la
+# unica manera de apuntar el agente a una copia de prueba a proposito.
+$baseFija = $null
+if ($config.base) { $baseFija = [string]$config.base }
+
 $cadena = $null
 foreach ($i in $instancias) {
   if ($i -eq 'MSSQLSERVER') { $servidor = '.' } else { $servidor = ".\$i" }
@@ -617,6 +654,8 @@ foreach ($i in $instancias) {
   catch { continue }
   foreach ($b in $bases.Rows) {
     $nombre = [string]$b['name']
+    if ($baseFija -and $nombre -ne $baseFija) { continue }
+    if (-not $baseFija -and (EsBaseDeCopia $nombre)) { continue }
     try {
       $r = Consultar "$raiz;Database=$nombre" "IF OBJECT_ID('dbo.cheques','U') IS NULL SELECT -1 AS n ELSE SELECT COUNT(*) AS n FROM dbo.cheques"
       $n = [int]$r.Rows[0]['n']
