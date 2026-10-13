@@ -96,7 +96,10 @@ if ($Modo -eq 'Copia') {
   $abiertos = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
       $ruta = $null
       try { $ruta = $_.Path } catch { }
-      ($ruta -and $ruta -like '*Softrestaurant9.5.0Pro*') -or ($_.ProcessName -match '(?i)softrestaurant')
+      # foxhhelp9 es el motor de ayuda de la plataforma del POS: vive en la misma
+      # carpeta y puede quedar abierto semanas, pero no es el programa ni lee la base.
+      ($_.ProcessName -notmatch '(?i)^foxhhelp') -and
+        (($ruta -and $ruta -like '*Softrestaurant9.5.0Pro*') -or ($_.ProcessName -match '(?i)softrestaurant'))
     })
   if ($abiertos.Count -gt 0) {
     Write-Host 'El programa del POS esta ABIERTO en esta computadora:'
