@@ -176,7 +176,14 @@ if (-not (Test-Path $carpeta)) { [void](New-Item -ItemType Directory -Path $carp
 $oyentes = @{}
 foreach ($i in $IMPRESORAS) {
   $l = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Parse('127.0.0.1')), $i.puerto
-  $l.Start()
+  try { $l.Start() }
+  catch {
+    foreach ($o in $oyentes.Values) { $o.Stop() }
+    Escribir ("  El puerto {0} ya esta en uso: casi seguro hay OTRA ventana de esta captura abierta y esperando." -f $i.puerto)
+    Escribir '  Use esa (cierre y vuelva a abrir el POS y presione REIMPRIMIR PROD.), o cierrela y corra esto otra vez.'
+    $lineas | Set-Content -Path $salida -Encoding utf8
+    exit 1
+  }
   $oyentes[$i.puerto] = $l
 }
 $capturas = @()
