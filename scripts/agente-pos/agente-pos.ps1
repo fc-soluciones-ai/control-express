@@ -369,6 +369,64 @@ function ClaveSegura($clave) {
   return $limpia
 }
 
+<#
+  EL MENU
+
+  La app de los clientes necesita saber que se vende y a cuanto, y eso vive en el
+  POS. Cada hora el agente manda una copia completa: grupos y productos con el
+  precio que cobra la caja. Son unos 560 productos, un cuerpo de cien kilobytes.
+
+  Se manda el precio BASE (productosdetalle.precio). El POS tiene columnas de
+  precio por dia de la semana (preciolunes...), pero el negocio no las usa.
+#>
+function ComoGrupo($fila) {
+  $clasif = 3
+  if ($fila['clasificacion'] -isnot [System.DBNull]) { $clasif = [int]$fila['clasificacion'] }
+  return [ordered]@{
+    clave         = [string]$fila['idgrupo']
+    nombre        = [string]$fila['descripcion']
+    clasificacion = $clasif
+  }
+}
+
+function ComoProducto($fila) {
+  $bit = {
+    param($v)
+    if ($null -eq $v -or $v -is [System.DBNull]) { return $false }
+    return ([double]$v -ne 0)
+  }
+  $texto = {
+    param($v)
+    if ($null -eq $v -or $v -is [System.DBNull]) { return $null }
+    $t = ([string]$v).Trim()
+    if ($t -eq '') { return $null }
+    return $t
+  }
+  $precio = 0.0
+  if ($fila['precio'] -isnot [System.DBNull]) { $precio = [double]$fila['precio'] }
+  $imp = 13
+  if ($fila['impuesto1'] -isnot [System.DBNull]) { $imp = [int][double]$fila['impuesto1'] }
+  return [ordered]@{
+    clave         = [string]$fila['idproducto']
+    nombre        = [string]$fila['descripcion']
+    grupo         = (& $texto $fila['idgrupo'])
+    area          = (& $texto $fila['idarea'])
+    precio        = $precio
+    impuesto      = $imp
+    paraDomicilio = (& $bit $fila['usardomicilio'])
+    bloqueado     = (& $bit $fila['bloqueado'])
+    precioAbierto = (& $bit $fila['precioabierto'])
+  }
+}
+
+$SQL_GRUPOS = "SELECT idgrupo, descripcion, clasificacion FROM dbo.grupos ORDER BY idgrupo"
+$SQL_PRODUCTOS = "
+  SELECT p.idproducto, p.descripcion, p.idgrupo, d.idarea, d.precio, d.impuesto1,
+         d.bloqueado, d.precioabierto, p.usardomicilio
+  FROM dbo.productos p
+  JOIN dbo.productosdetalle d ON d.idproducto = p.idproducto
+  ORDER BY p.idproducto"
+
 # ---------------------------------------------------------------------------
 if ($Autoprueba) {
   $fallos = 0
@@ -585,6 +643,48 @@ if ($Autoprueba) {
   # reloj de la pared de la pizzeria.
   $vuelta = [datetimeoffset]::Parse($conZona)
   Comprobar 'al releerla da la misma hora local' ($vuelta.DateTime.ToString('yyyy-MM-dd HH:mm:ss')) '2026-10-03 22:36:30'
+
+  # --- El menu ---------------------------------------------------------------
+  $tm = New-Object System.Data.DataTable
+  foreach ($c in @('idproducto','descripcion','idgrupo','idarea')) { [void]$tm.Columns.Add($c) }
+  foreach ($c in @('precio','impuesto1','bloqueado','precioabierto','usardomicilio')) { [void]$tm.Columns.Add($c, [double]) }
+  $fm = $tm.NewRow()
+  $fm['idproducto'] = '01004'; $fm['descripcion'] = 'PIZZA FAMILIAR ESTA POLLO'; $fm['idgrupo'] = '01'
+  $fm['idarea'] = '01'; $fm['precio'] = 9950.0001; $fm['impuesto1'] = 13
+  $fm['bloqueado'] = 0; $fm['precioabierto'] = 0; $fm['usardomicilio'] = 1
+  $tm.Rows.Add($fm)
+  $pm = ComoProducto $tm.Rows[0]
+  Comprobar 'el producto conserva la clave con sus ceros' $pm.clave '01004'
+  Comprobar 'el precio viaja tal cual' $pm.precio 9950.0001
+  Comprobar 'el area viaja' $pm.area '01'
+  Comprobar 'usardomicilio 1 es verdadero' $pm.paraDomicilio 'True'
+  Comprobar 'bloqueado 0 es falso' $pm.bloqueado 'False'
+  Comprobar 'precioabierto 0 es falso' $pm.precioAbierto 'False'
+  Comprobar 'el impuesto viaja' $pm.impuesto 13
+
+  $fn = $tm.NewRow()
+  $fn['idproducto'] = '06078'; $fn['descripcion'] = 'COCA COLA 600 ML'; $fn['idgrupo'] = '06'
+  $fn['precio'] = 1299.9999; $fn['bloqueado'] = 1; $fn['precioabierto'] = 1; $fn['usardomicilio'] = 0
+  $tm.Rows.Add($fn)
+  $pn = ComoProducto $tm.Rows[1]
+  Comprobar 'sin area, viaja como nulo y no como texto vacio' ($null -eq $pn.area) 'True'
+  Comprobar 'sin impuesto escrito se asume el 13' $pn.impuesto 13
+  Comprobar 'bloqueado 1 es verdadero' $pn.bloqueado 'True'
+  Comprobar 'precioabierto 1 es verdadero' $pn.precioAbierto 'True'
+  Comprobar 'usardomicilio 0 es falso' $pn.paraDomicilio 'False'
+
+  $cuerpoMenu = (@{ grupos = @(); productos = @($pm, $pn); completo = $true } | ConvertTo-Json -Depth 5 -Compress)
+  Comprobar 'el menu serializa el precio sin perderlo' ([bool]($cuerpoMenu -match '"precio":9950\.0001')) 'True'
+  Comprobar 'y el area nula sale como null' ([bool]($cuerpoMenu -match '"area":null')) 'True'
+
+  $tg = New-Object System.Data.DataTable
+  foreach ($c in @('idgrupo','descripcion')) { [void]$tg.Columns.Add($c) }
+  [void]$tg.Columns.Add('clasificacion', [int])
+  $fg = $tg.NewRow(); $fg['idgrupo'] = '06'; $fg['descripcion'] = 'REFRESCOS'; $fg['clasificacion'] = 1
+  $tg.Rows.Add($fg)
+  $gg = ComoGrupo $tg.Rows[0]
+  Comprobar 'el grupo viaja con su clasificacion' $gg.clasificacion 1
+  Comprobar 'y con su clave' $gg.clave '06'
 
   # --- La marca del disco -------------------------------------------------
   #
@@ -934,6 +1034,44 @@ function TocaElCatalogo {
   } catch { return $true }
 }
 
+# --- El menu, cada hora -------------------------------------------------------
+$urlMenu = ($config.url -replace '/pedidos$', '/menu')
+$rutaMenu = Join-Path $carpeta 'agente-pos.menu.txt'
+$horasMenu = 1
+if ($config.horasEntreMenus) { $horasMenu = [int]$config.horasEntreMenus }
+
+function TocaElMenu {
+  if (-not (Test-Path $rutaMenu)) { return $true }
+  try {
+    $ultima = [datetime](Get-Content $rutaMenu -Raw)
+    return ((Get-Date) - $ultima).TotalHours -ge $horasMenu
+  } catch { return $true }
+}
+
+function MandarElMenu {
+  $g = Consultar $cadena $SQL_GRUPOS
+  $p = Consultar $cadena $SQL_PRODUCTOS
+  if ($null -eq $p -or $p.Rows.Count -eq 0) { Anotar 'Menu: el POS no devolvio productos, no se manda nada.'; return }
+
+  $grupos = @(); foreach ($f in $g.Rows) { $grupos += (ComoGrupo $f) }
+  $productos = @(); foreach ($f in $p.Rows) { $productos += (ComoProducto $f) }
+
+  # completo = true: es TODO el catalogo, asi el servidor sabe que lo que no venga
+  # ya no esta en el POS.
+  $cuerpo = (@{ grupos = $grupos; productos = $productos; completo = $true } | ConvertTo-Json -Depth 5 -Compress)
+  $hora = AhoraUnix
+  $cabeceras = @{
+    'x-agente-firma' = (Firmar $config.secreto $hora $cuerpo)
+    'x-agente-hora'  = $hora
+    'content-type'   = 'application/json; charset=utf-8'
+  }
+  $r = Invoke-RestMethod -Uri $urlMenu -Method Post -Headers $cabeceras `
+    -Body (ComoCuerpo $cuerpo) -TimeoutSec 120
+  Anotar ("Menu: {0} productos ({1} nuevos, {2} actualizados, {3} sin cambio, {4} retirados, {5} rechazados)" -f `
+      $r.productos, $r.nuevos, $r.actualizados, $r.sinCambio, $r.retirados, $r.rechazados.Count)
+  Set-Content -Path $rutaMenu -Value (Get-Date -Format 'o') -Encoding utf8
+}
+
 if ($Probar -or $UnaVez) {
   $desde = UnaPasada $desde
   if ($Probar) { Anotar 'Prueba terminada. No se escribio nada en ningun lado.' }
@@ -950,6 +1088,17 @@ while ($true) {
     # clientes es mantenimiento y puede esperar treinta segundos mas.
     $desde = UnaPasada $desde
     if (TocaElCatalogo -or (LeerPosicionCatalogo $rutaPosicion) -gt 0) { UnPedazoDelCatalogo }
+    # El menu es una sola peticion y va al final: si falla (por ejemplo porque el
+    # servidor todavia no tiene la ruta) no se lleva por delante los pedidos.
+    if (TocaElMenu) {
+      try { MandarElMenu }
+      catch {
+        # Se reintenta en diez minutos, no en cada pasada (son cien kilobytes) ni en
+        # una hora (si el servidor aun no tiene la ruta, que se note pronto).
+        Anotar ("Menu: no se pudo mandar (" + $_.Exception.Message + "). Se reintenta en diez minutos.")
+        Set-Content -Path $rutaMenu -Value ((Get-Date).AddMinutes(10 - $horasMenu * 60).ToString('o')) -Encoding utf8
+      }
+    }
   } catch {
     # Que se caiga el internet del local es normal y no es motivo para que el
     # agente muera: se anota y se reintenta en la siguiente pasada.

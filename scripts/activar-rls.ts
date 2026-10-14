@@ -113,6 +113,7 @@ async function main(): Promise<void> {
        FROM pg_roles r WHERE r.rolname = current_user`,
     );
     const rol = yo[0];
+    if (!rol) throw new Error('No se pudo leer el rol de la conexion.');
     console.log(`Conectado como: ${rol.usuario} (se salta el RLS: ${rol.salta_rls || rol.superusuario ? 'si' : 'NO'})`);
     if (!(rol.salta_rls || rol.superusuario)) {
       console.log('  AVISO: este rol NO se salta el RLS. Si es el dueno de las tablas igual funciona,');
@@ -168,7 +169,7 @@ async function main(): Promise<void> {
       const filas = await prisma.$queryRawUnsafe<{ n: bigint }[]>(
         `SELECT count(*)::bigint AS n FROM ${identificador(esquema)}.${identificador(prueba)}`,
       );
-      console.log(`La aplicacion sigue leyendo: ${prueba} tiene ${filas[0].n} filas.`);
+      console.log(`La aplicacion sigue leyendo: ${prueba} tiene ${filas[0]?.n ?? 0} filas.`);
     }
     console.log('\nLISTO.');
   } finally {

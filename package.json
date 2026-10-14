@@ -13,7 +13,7 @@
     "db:seed": "tsx prisma/seed/seed.ts",
     "typecheck": "tsc --noEmit",
     "test:esquema": "tsx scripts/base-de-pruebas.ts scripts/verificar-esquema.ts",
-    "test": "npm run test:consulta && npm run test:esquema && npm run test:sesion && npm run test:permisos && npm run test:flota && npm run test:lectura && npm run test:ubicaciones && npm run test:whatsapp && npm run test:pos && npm run test:entregas && npm run test:respaldo",
+    "test": "npm run test:consulta && npm run test:esquema && npm run test:sesion && npm run test:permisos && npm run test:flota && npm run test:lectura && npm run test:ubicaciones && npm run test:whatsapp && npm run test:pos && npm run test:entregas && npm run test:menu && npm run test:respaldo",
     "db:vaciar": "tsx scripts/vaciar-datos.ts",
     "db:rls": "tsx scripts/activar-rls.ts",
     "db:respaldar": "tsx scripts/respaldar.ts",
@@ -42,7 +42,8 @@
     "agente:preparar": "tsx scripts/agente-pos/preparar-agente.ts",
     "db:volcar": "tsx scripts/volcar-datos.ts",
     "db:cargar": "tsx scripts/cargar-volcado.ts",
-    "test:entregas": "tsx scripts/base-de-pruebas.ts scripts/verificar-entregas.ts"
+    "test:entregas": "tsx scripts/base-de-pruebas.ts scripts/verificar-entregas.ts",
+    "test:menu": "tsx scripts/base-de-pruebas.ts scripts/verificar-menu.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -895,3 +895,80 @@ model Pedido {
   @@index([choferId, entroEn])
   @@map("pedidos")
 }
+
+// ---------------------------------------------------------------------------
+// EL MENU, COPIADO DEL POS
+//
+// El catalogo de productos vive en el POS y es de ahi de donde salen los
+// precios que la caja cobra. La app de los clientes no puede preguntarle al POS
+// en cada visita (esta en el local, sin VPN, y puede estar apagado), asi que el
+// agente manda una copia y la app lee esa copia.
+//
+// Es una copia: lo que se cambia en la caja manda. Lo unico que es nuestro y el
+// POS no pisa es ocultoPorDueno.
+// ---------------------------------------------------------------------------
+
+/// Un grupo del POS: FAMILIAR, MEDIANA, REFRESCOS...
+model GrupoMenu {
+  /// idgrupo del POS ('01'). Los ceros de adelante son parte de la clave.
+  id String @id
+
+  nombre String
+
+  /// La clasificacion del POS: 1 bebidas, 2 alimentos, 3 otros. Con ella la caja
+  /// reparte el subtotal de cada cuenta (comprobado contra 150 cuentas reales).
+  clasificacion Int @default(3)
+
+  presente  Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  productos ProductoMenu[]
+
+  @@map("grupos_menu")
+}
+
+/// Un producto del POS, con el precio que cobra la caja.
+model ProductoMenu {
+  /// idproducto del POS ('01004'). Los ceros de adelante son parte de la clave.
+  id String @id
+
+  grupoId String? @map("grupo_id")
+  nombre  String
+
+  /// Area de produccion del POS ('01' pizza, '02' pollo, '03' hamburguesa, '04'
+  /// batidos). Decide a que impresora de cocina va la comanda. Null = el producto
+  /// no sale en ninguna comanda.
+  areaId String? @map("area_id")
+
+  /// Centimos enteros, con el impuesto incluido (los precios del POS lo traen).
+  precio Int
+
+  /// Porcentaje de impuesto de venta del producto (13).
+  impuesto Int @default(13)
+
+  /// La marca "usar en domicilio" del POS.
+  paraDomicilio Boolean @default(false) @map("para_domicilio")
+  bloqueado     Boolean @default(false)
+
+  /// El cajero escribe el precio al venderlo (no tiene precio fijo).
+  precioAbierto Boolean @default(false) @map("precio_abierto")
+
+  /// Estaba en el ultimo envio completo del agente. Un producto que se borro del
+  /// POS queda en false y deja de ofrecerse, pero se conserva para los pedidos
+  /// viejos que lo mencionan.
+  presente Boolean @default(true)
+
+  /// Decision del dueno: no mostrar este producto en la app. El agente nunca lo
+  /// pisa.
+  ocultoPorDueno Boolean @default(false) @map("oculto_por_dueno")
+
+  sincronizadoEn DateTime @default(now()) @map("sincronizado_en")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  grupo GrupoMenu? @relation(fields: [grupoId], references: [id], onDelete: SetNull)
+
+  @@index([grupoId])
+  @@index([presente, paraDomicilio])
+  @@map("productos_menu")
+}

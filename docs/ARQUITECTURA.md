@@ -1115,3 +1115,40 @@ hay integración oficial que comprar; la ventaja es que el esquema está
 congelado y no va a cambiar nunca. Si alguna vez se escribe, se prueba primero
 contra una copia restaurada en otra base de ese mismo servidor, nunca contra
 `pruebas`.
+
+---
+
+## 19. El menú del POS en la nube
+
+La app de los clientes necesita saber qué se vende y a cuánto. Eso vive en el
+POS, que está en el local, sin VPN y a veces apagado. Por eso el agente manda
+una **copia** del menú cada hora y la app lee esa copia, nunca el POS.
+
+**Tablas.** `grupos_menu` (idgrupo, nombre, clasificación 1 bebidas / 2 alimentos
+/ 3 otros) y `productos_menu` (idproducto, grupo, área de producción, precio en
+céntimos con impuesto, marcas de domicilio / bloqueado / precio abierto,
+`presente`, `ocultoPorDueno`). Las claves conservan los ceros de adelante.
+
+**Entrada.** `POST /api/pos/menu`, firmada igual que los pedidos. Idempotente:
+repetirla no cambia nada. Si el envío es completo, lo que no viene se marca
+`presente = false` (no se borra: los pedidos viejos lo mencionan). Lo único
+propio es `ocultoPorDueno`, que el agente nunca pisa.
+
+**Qué se ofrece.** Una sola regla, `esOfrecible` en `src/lib/menu/reglas.ts`:
+presente, para domicilio, no bloqueado, no oculto, con precio fijo y mayor que
+cero, y fuera de los grupos de cargos (`'08'`, los EXPRESS, que son el cargo de
+envío y los calcula la app según la zona). La usan la pantalla y, más adelante,
+el cálculo del pedido.
+
+**Precio.** Se copia `productosdetalle.precio`, que es lo que la caja cobra hoy.
+La tabla `productosdelivery` del POS se descartó: está abandonada, con 0
+productos visibles y precios desactualizados.
+
+**Ruteo de la comanda.** `areaId` decide a qué impresora de cocina va cada
+producto (01 pizza, 02 pollo, 03 hamburguesa, 04 batidos). Un producto sin área
+no sale en ninguna comanda.
+
+**Después de un `db push` con tablas nuevas** hay que volver a correr
+`npm run db:rls -- --aplicar`: una tabla nueva nace sin seguridad por filas.
+
+Prueba: `npm run test:menu`.
