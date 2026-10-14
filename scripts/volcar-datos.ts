@@ -50,6 +50,14 @@ async function main(): Promise<void> {
     mensajes: await prisma.mensajeUbicacion.findMany(),
     pedidos: await prisma.pedido.findMany(),
     eventos: await prisma.eventoAuditoria.findMany(),
+    // El menu: los productos son una copia del POS, pero el menu de la app lo arma y
+    // lo corrige el dueno y no se puede volver a sacar de ningun lado.
+    gruposMenu: await prisma.grupoMenu.findMany(),
+    productosMenu: await prisma.productoMenu.findMany(),
+    categoriasApp: await prisma.categoriaApp.findMany(),
+    itemsApp: await prisma.itemApp.findMany(),
+    variantesApp: await prisma.varianteApp.findMany(),
+    complementosApp: await prisma.complementoApp.findMany(),
   };
 
   await mkdir(DESTINO, { recursive: true });

@@ -127,6 +127,13 @@ export async function cargarDesdeArchivo(
     ['mensajes', 'mensajes de WhatsApp', (f) => prisma.mensajeUbicacion.createMany({ data: f })],
     ['pedidos', 'pedidos', (f) => prisma.pedido.createMany({ data: f })],
     ['eventos', 'eventos de auditoria', (f) => prisma.eventoAuditoria.createMany({ data: f })],
+    // El menu, en orden de llaves foraneas: grupos y productos antes que lo que los usa.
+    ['gruposMenu', 'grupos del menu', (f) => prisma.grupoMenu.createMany({ data: f })],
+    ['productosMenu', 'productos del menu', (f) => prisma.productoMenu.createMany({ data: f })],
+    ['categoriasApp', 'categorias de la app', (f) => prisma.categoriaApp.createMany({ data: f })],
+    ['itemsApp', 'platos de la app', (f) => prisma.itemApp.createMany({ data: f })],
+    ['variantesApp', 'variantes de la app', (f) => prisma.varianteApp.createMany({ data: f })],
+    ['complementosApp', 'extras de la app', (f) => prisma.complementoApp.createMany({ data: f })],
     // Las sesiones NO se cargan: son credenciales vivas y no cuesta nada
     // volver a entrar con el PIN. Cargarlas solo alargaria su vida util.
   ];
