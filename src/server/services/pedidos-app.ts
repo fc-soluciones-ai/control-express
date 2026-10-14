@@ -72,12 +72,20 @@ export interface InfoDeLaApp {
 }
 
 export async function infoDeLaApp(): Promise<InfoDeLaApp> {
-  const [abierto, sinpe, primero] = await Promise.all([
-    pedidosAbiertos(),
-    datosSinpe(),
-    prisma.productoMenu.findUnique({ where: { id: TRAMOS_DE_ENVIO[0]!.productoMenuId } }),
-  ]);
-  return { abierto, sinpe: sinpe !== null, envioDesde: primero?.presente ? primero.precio : null };
+  // Si la base todavia no tiene las tablas de pedidos (un despliegue que llega antes
+  // que el cambio de esquema), la pantalla igual carga: sin interruptor, esta CERRADA.
+  // Un menu que muestra "cerrado" es mejor que una pagina de error.
+  try {
+    const [abierto, sinpe, primero] = await Promise.all([
+      pedidosAbiertos(),
+      datosSinpe(),
+      prisma.productoMenu.findUnique({ where: { id: TRAMOS_DE_ENVIO[0]!.productoMenuId } }),
+    ]);
+    return { abierto, sinpe: sinpe !== null, envioDesde: primero?.presente ? primero.precio : null };
+  } catch (error) {
+    console.error('[pedir] no se pudo leer el estado de la app; se muestra cerrada', error);
+    return { abierto: false, sinpe: false, envioDesde: null };
+  }
 }
 
 /** Abre o cierra la recepcion de pedidos. Queda en la bitacora, con quien lo hizo. */
