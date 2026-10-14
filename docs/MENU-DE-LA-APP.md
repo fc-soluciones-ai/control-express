@@ -100,7 +100,7 @@ acompañamiento, y no tres productos casi iguales.
 **Falta.** Datos de entrega y pago, el cálculo del envío, la cola de pedidos con su
 interruptor de emergencia, el agente que escribe el pedido en el POS e imprime las
 comandas, la pantalla para que el dueño revise y cambie el menú, mitad y mitad,
-bebidas / postres / adicionales, y las fotos (unas 145 ya están en el POS).
+bebidas / postres / adicionales, y las fotos (el POS no tiene ninguna: las columnas de imagen están vacías; salen de la página de Facebook o de fotos nuevas).
 
 **Cargar el menú en la base real:** `npm run db:push` (crea las tablas) y después
 `npm run db:menu-app` (carga la propuesta). Para verlo en pruebas con el menú real:
