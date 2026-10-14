@@ -15,6 +15,7 @@
     "test:esquema": "tsx scripts/base-de-pruebas.ts scripts/verificar-esquema.ts",
     "test": "npm run test:consulta && npm run test:esquema && npm run test:sesion && npm run test:permisos && npm run test:flota && npm run test:lectura && npm run test:ubicaciones && npm run test:whatsapp && npm run test:pos && npm run test:entregas && npm run test:respaldo",
     "db:vaciar": "tsx scripts/vaciar-datos.ts",
+    "db:rls": "tsx scripts/activar-rls.ts",
     "db:respaldar": "tsx scripts/respaldar.ts",
     "db:restaurar": "tsx scripts/restaurar.ts",
     "test:respaldo": "tsx scripts/base-de-pruebas.ts scripts/verificar-respaldo.ts",
