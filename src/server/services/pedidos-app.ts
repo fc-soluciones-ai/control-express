@@ -23,6 +23,13 @@ import {
   type VarianteVista,
 } from '@/lib/menu/estructura';
 import { esOfrecible } from '@/lib/menu/reglas';
+import {
+  CARGO_PLATAFORMA,
+  ENVIO_FIJO_DE_PRUEBA,
+  MODO_DE_ENVIO_INICIAL,
+  comoModoDeEnvio,
+  type ModoDeEnvio,
+} from '@/lib/pedido/cargos';
 import { TRAMOS_DE_ENVIO, tramoPara, type Coordenada } from '@/lib/pedido/envio';
 import { validarPedido, type LineaEntrante, type PedidoEntrante } from '@/lib/pedido/validar';
 import { ErrorNegocio } from '@/server/errores';
@@ -35,6 +42,8 @@ import { registrarEvento } from '@/server/services/auditoria';
 export const AJUSTE_ABIERTO = 'pedidos_abiertos';
 export const AJUSTE_SINPE_NUMERO = 'sinpe_numero';
 export const AJUSTE_SINPE_NOMBRE = 'sinpe_nombre';
+export const AJUSTE_ENVIO_MODO = 'envio_modo';
+export const AJUSTE_ENVIO_FIJO = 'envio_fijo_colones';
 
 export async function leerAjuste(clave: string): Promise<string | null> {
   const fila = await prisma.ajusteApp.findUnique({ where: { clave } });
@@ -69,6 +78,8 @@ export interface InfoDeLaApp {
   sinpe: boolean;
   /** Centimos del envio mas barato, para "Envio desde". */
   envioDesde: number | null;
+  /** true si el envio es un monto parejo: entonces no es "desde", es el precio. */
+  envioFijo: boolean;
 }
 
 export async function infoDeLaApp(): Promise<InfoDeLaApp> {
@@ -76,16 +87,68 @@ export async function infoDeLaApp(): Promise<InfoDeLaApp> {
   // que el cambio de esquema), la pantalla igual carga: sin interruptor, esta CERRADA.
   // Un menu que muestra "cerrado" es mejor que una pagina de error.
   try {
-    const [abierto, sinpe, primero] = await Promise.all([
+    const [abierto, sinpe, config, primero] = await Promise.all([
       pedidosAbiertos(),
       datosSinpe(),
+      configDeEnvio(),
       prisma.productoMenu.findUnique({ where: { id: TRAMOS_DE_ENVIO[0]!.productoMenuId } }),
     ]);
-    return { abierto, sinpe: sinpe !== null, envioDesde: primero?.presente ? primero.precio : null };
+    const fijo = config.modo === 'FIJO';
+    return {
+      abierto,
+      sinpe: sinpe !== null,
+      envioDesde: fijo ? config.fijo : primero?.presente ? primero.precio : null,
+      envioFijo: fijo,
+    };
   } catch (error) {
     console.error('[pedir] no se pudo leer el estado de la app; se muestra cerrada', error);
-    return { abierto: false, sinpe: false, envioDesde: null };
+    return { abierto: false, sinpe: false, envioDesde: null, envioFijo: false };
   }
+}
+
+export interface ConfigDeEnvio {
+  modo: ModoDeEnvio;
+  /** Centimos. Solo cuenta en modo FIJO. */
+  fijo: number;
+}
+
+/** Como se cobra el envio hoy. Sin ajuste: fijo de pruebas. */
+export async function configDeEnvio(): Promise<ConfigDeEnvio> {
+  const [modo, fijo] = await Promise.all([leerAjuste(AJUSTE_ENVIO_MODO), leerAjuste(AJUSTE_ENVIO_FIJO)]);
+  // Sin ajuste guardado (null) NO es cero colones: Number(null) da 0 y el envio saldria gratis.
+  const colones = fijo === null || fijo.trim() === '' ? Number.NaN : Number(fijo);
+  return {
+    modo: modo === null ? MODO_DE_ENVIO_INICIAL : comoModoDeEnvio(modo),
+    fijo: Number.isInteger(colones) && colones >= 0 && colones <= 100_000 ? colones * 100 : ENVIO_FIJO_DE_PRUEBA,
+  };
+}
+
+/** Cambia como se cobra el envio. Queda en la bitacora. */
+export async function fijarConfigDeEnvio(
+  modo: ModoDeEnvio,
+  fijoEnColones: number,
+  cajeroId: string,
+): Promise<void> {
+  if (!Number.isInteger(fijoEnColones) || fijoEnColones < 0 || fijoEnColones > 100_000) {
+    throw new ErrorNegocio('DATOS_INVALIDOS', 'El envio fijo tiene que ser un monto entero entre 0 y 100.000 colones.');
+  }
+  const antes = await configDeEnvio();
+  await prisma.$transaction(async (tx) => {
+    await tx.ajusteApp.upsert({ where: { clave: AJUSTE_ENVIO_MODO }, create: { clave: AJUSTE_ENVIO_MODO, valor: modo }, update: { valor: modo } });
+    await tx.ajusteApp.upsert({
+      where: { clave: AJUSTE_ENVIO_FIJO },
+      create: { clave: AJUSTE_ENVIO_FIJO, valor: String(fijoEnColones) },
+      update: { valor: String(fijoEnColones) },
+    });
+    await registrarEvento(tx, {
+      tipo: 'PEDIDO_APP_ESTADO',
+      cajeroId,
+      entidadTipo: 'AjusteApp',
+      entidadId: AJUSTE_ENVIO_MODO,
+      antes: { modo: antes.modo, fijo: antes.fijo / 100 },
+      despues: { modo, fijo: fijoEnColones },
+    });
+  });
 }
 
 /** Abre o cierra la recepcion de pedidos. Queda en la bitacora, con quien lo hizo. */
@@ -127,7 +190,10 @@ export interface Cotizacion {
   lineas: LineaCalculada[];
   subtotal: number;
   envio: number;
+  /** El producto EXPRESS del POS que se cobra, o null si el envio es fijo de pruebas. */
   envioProductoId: string | null;
+  /** El cargo por uso de la plataforma (250 colones). */
+  cargoApp: number;
   total: number;
   distanciaKm: number | null;
 }
@@ -227,17 +293,29 @@ export async function cotizar(
       `Por ahora no llegamos hasta tu ubicación (${tramo.km.toFixed(1)} km). Llamanos y vemos.`,
     );
   }
-  const productoEnvio = await prisma.productoMenu.findUnique({ where: { id: tramo.tramo.productoMenuId } });
-  if (!productoEnvio || !productoEnvio.presente) {
-    throw new ErrorNegocio('FUERA_DE_ZONA', 'No pudimos calcular el envío. Llamanos para hacer tu pedido.');
+
+  // Fijo (pruebas): un monto parejo. Por distancia: el producto EXPRESS del tramo.
+  const config = await configDeEnvio();
+  let envio: number;
+  let envioProductoId: string | null = null;
+  if (config.modo === 'FIJO') {
+    envio = config.fijo;
+  } else {
+    const productoEnvio = await prisma.productoMenu.findUnique({ where: { id: tramo.tramo.productoMenuId } });
+    if (!productoEnvio || !productoEnvio.presente) {
+      throw new ErrorNegocio('FUERA_DE_ZONA', 'No pudimos calcular el envío. Llamanos para hacer tu pedido.');
+    }
+    envio = productoEnvio.precio;
+    envioProductoId = productoEnvio.id;
   }
 
   return {
     lineas: calculadas,
     subtotal,
-    envio: productoEnvio.precio,
-    envioProductoId: productoEnvio.id,
-    total: subtotal + productoEnvio.precio,
+    envio,
+    envioProductoId,
+    cargoApp: CARGO_PLATAFORMA,
+    total: subtotal + envio + CARGO_PLATAFORMA,
     distanciaKm: Math.round(tramo.km * 10) / 10,
   };
 }
@@ -337,6 +415,7 @@ export async function crearPedidoApp(crudo: unknown): Promise<PedidoCreado> {
         referenciaPago: p.metodoPago === 'SINPE' ? p.referenciaPago : null,
         subtotal: cot.subtotal,
         envio: cot.envio,
+        cargoApp: cot.cargoApp,
         total: cot.total,
         nota: p.nota,
         lineas: {
@@ -399,6 +478,7 @@ export interface PedidoParaElCliente {
   metodoPago: string;
   subtotal: number;
   envio: number;
+  cargoApp: number;
   total: number;
   pagaCon: number | null;
   creadoEn: string;
@@ -419,6 +499,7 @@ export async function pedidoParaElCliente(id: string): Promise<PedidoParaElClien
     metodoPago: p.metodoPago,
     subtotal: p.subtotal,
     envio: p.envio,
+    cargoApp: p.cargoApp,
     total: p.total,
     pagaCon: p.pagaCon,
     creadoEn: p.createdAt.toISOString(),
@@ -452,6 +533,7 @@ export interface PedidoParaElLocal {
   pagoVerificado: boolean;
   subtotal: number;
   envio: number;
+  cargoApp: number;
   total: number;
   nota: string | null;
   creadoEn: string;
@@ -484,6 +566,7 @@ export async function pedidosParaElLocal(horas = 24): Promise<PedidoParaElLocal[
     pagoVerificado: p.pagoVerificado,
     subtotal: p.subtotal,
     envio: p.envio,
+    cargoApp: p.cargoApp,
     total: p.total,
     nota: p.nota,
     creadoEn: p.createdAt.toISOString(),

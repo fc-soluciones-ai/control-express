@@ -13,12 +13,15 @@ import {
   AJUSTE_SINPE_NOMBRE,
   AJUSTE_SINPE_NUMERO,
   cambiarEstadoDePedidoApp,
+  configDeEnvio,
   datosSinpe,
+  fijarConfigDeEnvio,
   fijarPedidosAbiertos,
   guardarAjuste,
   pedidosAbiertos,
   pedidosParaElLocal,
   verificarPagoDePedidoApp,
+  type ConfigDeEnvio,
   type DatosSinpe,
   type EstadoDePedidoApp,
   type PedidoParaElLocal,
@@ -27,14 +30,26 @@ import {
 export interface EstadoDeLaPantalla {
   abierto: boolean;
   sinpe: DatosSinpe | null;
+  envio: ConfigDeEnvio;
   pedidos: PedidoParaElLocal[];
 }
 
 export async function accionLeerPedidosApp(): Promise<EstadoDeLaPantalla> {
   const usuario = await exigirCajero();
   exigirPermiso(usuario, 'OPERACION');
-  const [abierto, sinpe, pedidos] = await Promise.all([pedidosAbiertos(), datosSinpe(), pedidosParaElLocal()]);
-  return { abierto, sinpe, pedidos };
+  const [abierto, sinpe, envio, pedidos] = await Promise.all([
+    pedidosAbiertos(),
+    datosSinpe(),
+    configDeEnvio(),
+    pedidosParaElLocal(),
+  ]);
+  return { abierto, sinpe, envio, pedidos };
+}
+
+export async function accionGuardarEnvio(modo: 'FIJO' | 'DISTANCIA', fijoEnColones: number): Promise<void> {
+  const usuario = await exigirCajero();
+  exigirPermiso(usuario, 'OPERACION');
+  await fijarConfigDeEnvio(modo, fijoEnColones, usuario.id);
 }
 
 export async function accionAbrirOCerrar(abierto: boolean): Promise<void> {

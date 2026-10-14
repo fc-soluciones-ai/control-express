@@ -21,6 +21,7 @@ export async function POST(peticion: Request): Promise<Response> {
     return NextResponse.json({
       subtotal: c.subtotal,
       envio: c.envio,
+      cargoApp: c.cargoApp,
       total: c.total,
       distanciaKm: c.distanciaKm,
     });

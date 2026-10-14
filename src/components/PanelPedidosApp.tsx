@@ -15,11 +15,13 @@ import { useCallback, useEffect, useState, useTransition } from 'react';
 import {
   accionAbrirOCerrar,
   accionCambiarEstado,
+  accionGuardarEnvio,
   accionGuardarSinpe,
   accionLeerPedidosApp,
   accionVerificarPago,
   type EstadoDeLaPantalla,
 } from '@/app/pedidos-app/acciones';
+import { CARGO_PLATAFORMA, NOMBRE_CARGO_PLATAFORMA } from '@/lib/pedido/cargos';
 import { enlaceDeMapa, enlaceDeWaze } from '@/lib/pedido/envio';
 import { formatearMoneda } from '@/lib/money/money';
 import type { EstadoDePedidoApp, PedidoParaElLocal } from '@/server/services/pedidos-app';
@@ -60,6 +62,8 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
   const [ocupado, empezar] = useTransition();
   const [sinpeNumero, setSinpeNumero] = useState(inicial.sinpe?.numero ?? '');
   const [sinpeNombre, setSinpeNombre] = useState(inicial.sinpe?.nombre ?? '');
+  const [modoEnvio, setModoEnvio] = useState<'FIJO' | 'DISTANCIA'>(inicial.envio.modo);
+  const [envioFijo, setEnvioFijo] = useState(String(inicial.envio.fijo / 100));
 
   const leer = useCallback(async () => {
     try {
@@ -86,6 +90,9 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
     });
 
   const nuevos = datos.pedidos.filter((p) => p.estado === 'NUEVO').length;
+  // Lo que se lleva el sistema por los pedidos que no se cancelaron.
+  const validos = datos.pedidos.filter((p) => p.estado !== 'CANCELADO');
+  const cargoAcumulado = validos.reduce((suma, p) => suma + p.cargoApp, 0);
 
   return (
     <div className="space-y-5">
@@ -132,6 +139,62 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
             ))}
           </ul>
         )}
+      </section>
+
+      {/* --- Lo que gana el sistema ------------------------------------------------------- */}
+      <section className="rounded-2xl bg-panel p-5">
+        <h2 className="text-lg font-bold">{NOMBRE_CARGO_PLATAFORMA}</h2>
+        <p className="text-slate-400">
+          Cada pedido lleva {formatearMoneda(CARGO_PLATAFORMA)} por el uso de la app. En las últimas 24 horas:{' '}
+          <strong className="text-white">
+            {validos.length} pedido(s) · {formatearMoneda(cargoAcumulado)}
+          </strong>
+          .
+        </p>
+      </section>
+
+      {/* --- El envio ----------------------------------------------------------------------- */}
+      <section className="rounded-2xl bg-panel p-5">
+        <h2 className="text-lg font-bold">Cómo se cobra el envío</h2>
+        <p className="mb-3 text-sm text-slate-400">
+          <strong>Fijo</strong> cobra el mismo monto a todos (para las pruebas). <strong>Por distancia</strong> usa los
+          tramos de kilómetros con las tarifas EXPRESS de la caja.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex gap-2">
+            {(['FIJO', 'DISTANCIA'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={modoEnvio === m}
+                onClick={() => setModoEnvio(m)}
+                className={`min-h-tactil rounded-xl px-5 text-lg font-bold ${
+                  modoEnvio === m ? 'bg-entrada text-black' : 'bg-fondo text-white ring-1 ring-borde'
+                }`}
+              >
+                {m === 'FIJO' ? 'Fijo' : 'Por distancia'}
+              </button>
+            ))}
+          </div>
+          <label className="block text-sm text-slate-400">
+            Envío fijo (colones)
+            <input
+              className="mt-1 block min-h-tactil rounded-xl bg-fondo px-4 text-lg text-white ring-1 ring-borde"
+              value={envioFijo}
+              inputMode="numeric"
+              maxLength={6}
+              onChange={(e) => setEnvioFijo(e.target.value.replace(/\D/g, ''))}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => hacer(() => accionGuardarEnvio(modoEnvio, Number(envioFijo || '0')))}
+            className="min-h-tactil rounded-xl bg-panelClaro px-6 text-lg font-bold"
+          >
+            Guardar
+          </button>
+        </div>
       </section>
 
       {/* --- SINPE ------------------------------------------------------------------------ */}
@@ -208,6 +271,9 @@ function FilaDePedido({
         </div>
         <p className="text-right">
           <span className="block text-3xl font-extrabold">{formatearMoneda(p.total)}</span>
+          <span className="block text-xs text-slate-500">
+            comida {formatearMoneda(p.subtotal)} + envío {formatearMoneda(p.envio)} + app {formatearMoneda(p.cargoApp)}
+          </span>
           <span className="text-sm text-slate-400">
             {p.metodoPago === 'EFECTIVO'
               ? p.pagaCon

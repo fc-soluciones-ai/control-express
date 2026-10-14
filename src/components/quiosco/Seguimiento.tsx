@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 
+import { NOMBRE_CARGO_PLATAFORMA } from '@/lib/pedido/cargos';
 import { enlaceDeMapa } from '@/lib/pedido/envio';
 import type { DatosSinpe, EstadoDePedidoApp, PedidoParaElCliente } from '@/server/services/pedidos-app';
 
@@ -140,6 +141,12 @@ export function Seguimiento({
               <dt className="text-tinta/70">Envío</dt>
               <dd className="font-bold">{colones(pedido.envio)}</dd>
             </div>
+            {pedido.cargoApp > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-tinta/70">{NOMBRE_CARGO_PLATAFORMA}</dt>
+                <dd className="font-bold">{colones(pedido.cargoApp)}</dd>
+              </div>
+            )}
             <div className="flex justify-between text-xl font-extrabold">
               <dt>Total</dt>
               <dd>{colones(pedido.total)}</dd>

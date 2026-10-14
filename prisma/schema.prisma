@@ -1153,6 +1153,9 @@ model PedidoApp {
   // --- El dinero, en centimos, calculado por el SERVIDOR ----------------------
   subtotal Int
   envio    Int
+  /// Lo que se cobra por usar la app (250 colones por pedido). Es del dueno del
+  /// sistema, no de la pizzeria: va aparte para poder sumarlo en un reporte.
+  cargoApp Int @default(0) @map("cargo_app")
   total    Int
 
   nota String?

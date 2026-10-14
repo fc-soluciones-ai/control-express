@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { extrasParaElServidor, totalDelCarrito, type LineaDelCarrito } from '@/lib/menu/carrito';
+import { NOMBRE_CARGO_PLATAFORMA } from '@/lib/pedido/cargos';
 import { TIEMPO_ESTIMADO, enlaceDeMapa } from '@/lib/pedido/envio';
 
 import { colones, Tarjeta } from './ui';
@@ -32,6 +33,7 @@ interface Ubicacion {
 interface Cotizacion {
   subtotal: number;
   envio: number;
+  cargoApp: number;
   total: number;
   distanciaKm: number | null;
 }
@@ -426,6 +428,9 @@ export function Entrega({
               etiqueta={`Envío${cotizacion?.distanciaKm != null ? ` (${cotizacion.distanciaKm} km)` : ''}`}
               valor={cotizacion ? colones(cotizacion.envio) : 'con tu ubicación'}
             />
+            {cotizacion && cotizacion.cargoApp > 0 && (
+              <Linea etiqueta={NOMBRE_CARGO_PLATAFORMA} valor={colones(cotizacion.cargoApp)} />
+            )}
             <div className="flex items-baseline justify-between border-t border-black/10 pt-3 text-xl font-extrabold">
               <dt>Total</dt>
               <dd>{cotizacion ? colones(cotizacion.total) : '—'}</dd>

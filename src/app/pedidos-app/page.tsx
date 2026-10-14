@@ -11,7 +11,7 @@ import { redirect } from 'next/navigation';
 import { Cabecera } from '@/components/Cabecera';
 import { PanelPedidosApp } from '@/components/PanelPedidosApp';
 import { tienePermiso } from '@/server/permisos';
-import { datosSinpe, pedidosAbiertos, pedidosParaElLocal } from '@/server/services/pedidos-app';
+import { configDeEnvio, datosSinpe, pedidosAbiertos, pedidosParaElLocal } from '@/server/services/pedidos-app';
 import { cajeroDeSesion } from '@/server/services/sesion';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +21,12 @@ export default async function PedidosDeLaApp() {
   if (!cajero) redirect('/entrar');
   if (!tienePermiso(cajero.rol, 'OPERACION')) redirect('/clientes');
 
-  const [abierto, sinpe, pedidos] = await Promise.all([pedidosAbiertos(), datosSinpe(), pedidosParaElLocal()]);
+  const [abierto, sinpe, envio, pedidos] = await Promise.all([
+    pedidosAbiertos(),
+    datosSinpe(),
+    configDeEnvio(),
+    pedidosParaElLocal(),
+  ]);
 
   return (
     <main className="mx-auto max-w-[1200px] p-5">
@@ -32,7 +37,7 @@ export default async function PedidosDeLaApp() {
           Lo que piden los clientes desde el teléfono. Cada uno trae su ubicación para que el repartidor llegue directo.
         </p>
       </div>
-      <PanelPedidosApp inicial={{ abierto, sinpe, pedidos }} />
+      <PanelPedidosApp inicial={{ abierto, sinpe, envio, pedidos }} />
     </main>
   );
 }

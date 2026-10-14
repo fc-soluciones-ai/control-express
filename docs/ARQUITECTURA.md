@@ -1182,10 +1182,22 @@ cuerpo máximo de 100 KB, ubicación obligatoriamente dentro de Costa Rica, y to
 texto limpio y acotado antes de guardarse. Cada cambio de estado y cada apertura o
 cierre del interruptor queda en la bitácora con quién lo hizo.
 
-**Envío.** `src/lib/pedido/envio.ts`. **La regla es provisional**: distancia en línea
-recta desde un punto del centro de Alajuela, en cuatro tramos (3, 5, 8 y 12 km) que
-apuntan a los productos EXPRESS 1400, 1600, 2000 y 2500 del POS. Cuando el dueño dé la
-regla real y la ubicación del local, se cambian `LOCAL` y `TRAMOS_DE_ENVIO` y nada más.
+**Envío.** Dos modos, que se cambian desde `/pedidos-app` sin tocar código:
+**fijo** (el monto que se ponga, hoy ₡1.500, para las pruebas) y **por distancia**.
+Sin ajuste guardado, el modo es fijo. Por distancia usa `src/lib/pedido/envio.ts`:
+línea recta desde un punto del centro de Alajuela, en cuatro tramos (3, 5, 8 y 12 km)
+que apuntan a los productos EXPRESS 1400, 1600, 2000 y 2500 del POS. **Esos tramos son
+provisionales**: el dueño quiere las tarifas de siempre (centro, La Garita…) redondeadas
+según la distancia. Cuando dé la regla y la ubicación del local, se cambian `LOCAL` y
+`TRAMOS_DE_ENVIO`. En los dos modos, más allá de 12 km no se entrega.
+
+**Cargo por uso de la plataforma.** `src/lib/pedido/cargos.ts`: ₡250 en cada pedido,
+que gana el dueño del sistema por la tramitología de la app. Va en su propio campo
+(`cargoApp`), no mezclado con el envío ni con la comida, para poder sumarlo en un reporte
+(la pantalla del local muestra cuánto lleva en las últimas 24 horas). El total del cliente
+es comida + envío + cargo. **Pendiente con el contador:** si el cargo lleva impuesto y
+cómo se anota en el POS al escribir el pedido (si no se anota, la caja del repartidor
+sobra ₡250 por pedido).
 
 **Pago.** Efectivo (con "¿con cuánto pagás?" para el vuelto) y SINPE Móvil verificado a
 mano. **Tarjeta todavía no**: necesita un proveedor de pagos, su alta comercial y

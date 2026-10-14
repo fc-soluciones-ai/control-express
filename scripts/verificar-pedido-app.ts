@@ -17,6 +17,7 @@
 
 import { prisma } from '@/lib/db/prisma';
 import { PROPUESTA_INICIAL } from '@/lib/menu/propuesta-inicial';
+import { CARGO_PLATAFORMA, ENVIO_FIJO_DE_PRUEBA } from '@/lib/pedido/cargos';
 import { distanciaKm, estaEnCostaRica, LOCAL, tramoPara } from '@/lib/pedido/envio';
 import { validarPedido } from '@/lib/pedido/validar';
 import { aplicarPropuestaInicial, menuDeLaApp } from '@/server/services/menu-app';
@@ -24,8 +25,10 @@ import {
   AJUSTE_ABIERTO,
   AJUSTE_SINPE_NUMERO,
   cambiarEstadoDePedidoApp,
+  configDeEnvio,
   cotizar,
   crearPedidoApp,
+  fijarConfigDeEnvio,
   fijarPedidosAbiertos,
   guardarAjuste,
   pedidoParaElCliente,
@@ -194,19 +197,49 @@ async function main(): Promise<void> {
   comprobar('queda en la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: { in: ['APP_ABIERTA', 'APP_CERRADA'] }, cajeroId: cajero.id } }), 2);
   await fijarPedidosAbiertos(true, cajero.id);
 
-  console.log('\n--- Un pedido bueno ---');
-  const cot = await cotizar(entrada().lineas, aKm(2));
+  console.log('\n--- El envio fijo de pruebas y el cargo de la plataforma ---');
   const esperadoSub = (familiar.precio + queso.precio) * 2;
+  const config0 = await configDeEnvio();
+  comprobar('sin ajuste, el envio es FIJO', config0.modo, 'FIJO');
+  comprobar('de 1.500 colones', config0.fijo, ENVIO_FIJO_DE_PRUEBA);
+  comprobar('el cargo de la plataforma son 250 colones', CARGO_PLATAFORMA, 25000);
+  const cotFija = await cotizar(entrada().lineas, aKm(2));
+  comprobar('el envio fijo no apunta a un producto del POS', cotFija.envioProductoId, null);
+  comprobar('el envio cuesta 1.500', cotFija.envio, 150000);
+  comprobar('lleva el cargo de 250', cotFija.cargoApp, 25000);
+  comprobar('el total suma comida, envio y cargo', cotFija.total, esperadoSub + 150000 + 25000);
+  comprobar('a 10 km el envio fijo es el mismo', (await cotizar(entrada().lineas, aKm(10))).envio, 150000);
+  comprobar('pero fuera de la zona de entrega no se entrega', (await falla(() => cotizar(entrada().lineas, aKm(20))))?.codigo, 'FUERA_DE_ZONA');
+  const rFijo = await crearPedidoApp(entrada({ telefono: '87776666' }));
+  const gFijo = await prisma.pedidoApp.findUnique({ where: { id: rFijo.id } });
+  comprobar('el pedido guarda el cargo aparte', gFijo?.cargoApp, 25000);
+  comprobar('y el envio aparte', gFijo?.envio, 150000);
+  comprobar('y el total completo', gFijo?.total, esperadoSub + 150000 + 25000);
+  comprobar('el cliente ve el cargo', (await pedidoParaElCliente(rFijo.id))?.cargoApp, 25000);
+  await prisma.pedidoApp.deleteMany();
+
+  console.log('\n--- Cambiar como se cobra el envio ---');
+  await fijarConfigDeEnvio('FIJO', 2000, cajero.id);
+  comprobar('un envio fijo de 2.000', (await cotizar(entrada().lineas, aKm(2))).envio, 200000);
+  comprobar('queda en la bitacora', await prisma.eventoAuditoria.count({ where: { entidadId: 'envio_modo' } }), 1);
+  comprobar('un monto con decimales se rechaza', (await falla(() => fijarConfigDeEnvio('FIJO', 1500.5, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un monto negativo se rechaza', (await falla(() => fijarConfigDeEnvio('FIJO', -1, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un monto absurdo se rechaza', (await falla(() => fijarConfigDeEnvio('FIJO', 5_000_000, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  await fijarConfigDeEnvio('DISTANCIA', 1500, cajero.id);
+  comprobar('por distancia: el modo cambia', (await configDeEnvio()).modo, 'DISTANCIA');
+
+  console.log('\n--- Un pedido bueno (envio por distancia) ---');
+  const cot = await cotizar(entrada().lineas, aKm(2));
   comprobar('el subtotal sale del POS', cot.subtotal, esperadoSub);
   comprobar('el envio del tramo es el producto 08003', cot.envioProductoId, '08003');
   comprobar('y cuesta lo que dice el POS', cot.envio, 140000);
-  comprobar('el total es la suma', cot.total, esperadoSub + 140000);
+  comprobar('el total es la suma, con el cargo', cot.total, esperadoSub + 140000 + CARGO_PLATAFORMA);
 
   const e1 = entrada({ pagaCon: 2000000 });
   const r1 = await crearPedidoApp(e1);
   comprobar('se crea', r1.repetido, false);
   comprobar('con un numero', r1.numero > 0, true);
-  comprobar('y el total correcto', r1.total, esperadoSub + 140000);
+  comprobar('y el total correcto', r1.total, esperadoSub + 140000 + CARGO_PLATAFORMA);
   const guardado = await prisma.pedidoApp.findUnique({ where: { id: r1.id }, include: { lineas: true } });
   comprobar('nace NUEVO', guardado?.estado, 'NUEVO');
   comprobar('guarda la ubicacion', guardado?.latitud !== null && guardado?.longitud !== null, true);
@@ -219,7 +252,7 @@ async function main(): Promise<void> {
   console.log('\n--- Lo que mande el telefono sobre dinero no cuenta ---');
   const tramposo = { ...entrada(), total: 1, subtotal: 1, envio: 0, precio: 1 };
   const rt = await crearPedidoApp(tramposo);
-  comprobar('el total lo puso el servidor', rt.total, esperadoSub + 140000);
+  comprobar('el total lo puso el servidor', rt.total, esperadoSub + 140000 + CARGO_PLATAFORMA);
 
   console.log('\n--- Repetir el envio no duplica ---');
   const antes = await prisma.pedidoApp.count();

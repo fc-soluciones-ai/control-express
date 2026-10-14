@@ -50,6 +50,7 @@ export interface InfoParaElQuiosco {
   abierto: boolean;
   sinpe: boolean;
   envioDesde: number | null;
+  envioFijo: boolean;
 }
 
 export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoParaElQuiosco }) {
@@ -135,7 +136,12 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
             ⏱ {TIEMPO_ESTIMADO.desde}–{TIEMPO_ESTIMADO.hasta} min
           </li>
           <li className="rounded-full bg-white/20 px-3 py-1.5">
-            🛵 Envío {info.envioDesde !== null ? `desde ${colones(info.envioDesde)}` : 'según tu zona'}
+            🛵 Envío{' '}
+            {info.envioDesde === null
+              ? 'según tu zona'
+              : info.envioFijo
+                ? colones(info.envioDesde)
+                : `desde ${colones(info.envioDesde)}`}
           </li>
           <li className={`rounded-full px-3 py-1.5 ${info.abierto ? 'bg-albahaca' : 'bg-black/40'}`}>
             {info.abierto ? '● Recibiendo pedidos' : '● Cerrado por ahora'}
