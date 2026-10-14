@@ -50,8 +50,8 @@ function envioBase(): EnvioDeMenu {
       { clave: '06078', nombre: 'COCA COLA 600 ML', grupo: '06', area: null, precio: 1299.9999, impuesto: 13, paraDomicilio: true },
       // Bloqueado.
       { clave: '06999', nombre: 'BLOQUEADO', grupo: '06', precio: 1000, paraDomicilio: true, bloqueado: true },
-      // Precio abierto: lo tarifica el cajero.
-      { clave: '06998', nombre: 'PRECIO ABIERTO', grupo: '06', precio: 500, paraDomicilio: true, precioAbierto: true },
+      // Con la marca de precio abierto, como viene en TODO el POS: igual se ofrece.
+      { clave: '06998', nombre: 'CON MARCA DE PRECIO ABIERTO', grupo: '06', precio: 500, paraDomicilio: true, precioAbierto: true },
       // Cargo de envio: grupo fuera del menu.
       { clave: '0105576', nombre: 'EXPRESS 1600', grupo: '08', precio: 1600, paraDomicilio: true },
       // Sin precio.
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
   comprobar('de comedor no', esOfrecible({ ...bueno, paraDomicilio: false }), false);
   comprobar('bloqueado no', esOfrecible({ ...bueno, bloqueado: true }), false);
   comprobar('oculto por el dueno no', esOfrecible({ ...bueno, ocultoPorDueno: true }), false);
-  comprobar('precio abierto no', esOfrecible({ ...bueno, precioAbierto: true }), false);
+  comprobar('precio abierto NO decide (vale distinto de cero en todo el POS)', esOfrecible({ ...bueno, precioAbierto: true }), true);
   comprobar('sin precio no', esOfrecible({ ...bueno, precio: 0 }), false);
   comprobar('retirado del POS no', esOfrecible({ ...bueno, presente: false }), false);
   comprobar('grupo de cargos (08) no', esOfrecible({ ...bueno, grupoId: '08' }), false);
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 
   const menu = await menuParaLaApp();
   const ids = menu.flatMap((g) => g.productos.map((p) => p.id));
-  comprobar('el menu ofrece solo la pizza de domicilio y la coca', ids.sort(), ['01004', '06078']);
+  comprobar('el menu ofrece la pizza de domicilio, la coca y la que trae marca de precio abierto', ids.sort(), ['01004', '06078', '06998']);
   comprobar('agrupado en dos grupos', menu.map((g) => g.id), ['01', '06']);
   comprobar('el grupo trae su nombre', menu[0]?.nombre, 'FAMILIAR');
 
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
     (await prisma.productoMenu.findUnique({ where: { id: '06078' } }))?.ocultoPorDueno,
     true,
   );
-  comprobar('y no sale en el menu', (await menuParaLaApp()).flatMap((g) => g.productos.map((p) => p.id)), ['01004']);
+  comprobar('y no sale en el menu', (await menuParaLaApp()).flatMap((g) => g.productos.map((p) => p.id)), ['01004', '06998']);
   await prisma.productoMenu.update({ where: { id: '06078' }, data: { ocultoPorDueno: false } });
 
   console.log('\n--- Un producto desaparece del POS ---');
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   const retirada = await prisma.productoMenu.findUnique({ where: { id: '06078' } });
   comprobar('sigue guardado (los pedidos viejos lo mencionan)', retirada !== null, true);
   comprobar('pero ya no esta presente', retirada?.presente, false);
-  comprobar('y no se ofrece', (await menuParaLaApp()).flatMap((g) => g.productos.map((p) => p.id)), ['01004']);
+  comprobar('y no se ofrece', (await menuParaLaApp()).flatMap((g) => g.productos.map((p) => p.id)), ['01004', '06998']);
   // Si vuelve, se recupera.
   await sincronizarMenu(envioBase());
   comprobar('si vuelve al POS, se recupera', (await prisma.productoMenu.findUnique({ where: { id: '06078' } }))?.presente, true);

@@ -22,7 +22,8 @@ export interface ProductoOfrecible {
   paraDomicilio: boolean;
   bloqueado: boolean;
   ocultoPorDueno: boolean;
-  precioAbierto: boolean;
+  /** Se guarda pero no decide nada: ver esOfrecible. */
+  precioAbierto?: boolean;
   precio: number;
   grupoId: string | null;
 }
@@ -33,8 +34,11 @@ export function esOfrecible(p: ProductoOfrecible): boolean {
   if (!p.paraDomicilio) return false;
   if (p.bloqueado) return false;
   if (p.ocultoPorDueno) return false;
-  // Un producto sin precio fijo lo tarifica el cajero: la app no sabe cuanto cobrar.
-  if (p.precioAbierto) return false;
+  // precioAbierto NO se usa para decidir: en el POS de esta pizzeria la columna
+  // trae un valor distinto de cero en los 563 productos (se comprobo con el menu
+  // real), asi que no distingue nada. Los productos que la caja tarifica a mano
+  // (ALQUILER DE LOCAL, SERVICIO RESTAURANTE...) se quedan fuera porque el menu
+  // de la app se arma a mano, producto por producto.
   if (p.precio <= 0) return false;
   if (p.grupoId !== null && GRUPOS_FUERA_DEL_MENU.includes(p.grupoId)) return false;
   return true;
