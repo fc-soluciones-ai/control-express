@@ -51,3 +51,7 @@ scripts/sql/salida-*.txt
 scripts/agente-pos/agente-pos.config.json
 scripts/agente-pos/agente-pos.marca.txt
 scripts/agente-pos/agente-pos.registro.txt
+
+# Fotos de productos sacadas del POS y capturas de comandas: son de trabajo, no se versionan.
+scripts/sql/fotos-pos/
+scripts/sql/comandas-capturadas/
