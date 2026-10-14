@@ -134,6 +134,9 @@ export async function cargarDesdeArchivo(
     ['itemsApp', 'platos de la app', (f) => prisma.itemApp.createMany({ data: f })],
     ['variantesApp', 'variantes de la app', (f) => prisma.varianteApp.createMany({ data: f })],
     ['complementosApp', 'extras de la app', (f) => prisma.complementoApp.createMany({ data: f })],
+    ['ajustesApp', 'ajustes de la app', (f) => prisma.ajusteApp.createMany({ data: f })],
+    ['pedidosApp', 'pedidos de la app', (f) => prisma.pedidoApp.createMany({ data: f })],
+    ['lineasPedidoApp', 'lineas de pedidos de la app', (f) => prisma.lineaPedidoApp.createMany({ data: f })],
     // Las sesiones NO se cargan: son credenciales vivas y no cuesta nada
     // volver a entrar con el PIN. Cargarlas solo alargaria su vida util.
   ];

@@ -1,0 +1,301 @@
+/**
+ * Comprobacion de los pedidos de la app de clientes.
+ *
+ *   npm run test:pedido-app
+ *
+ * Lo que protege a la pizzeria:
+ *  - que la app NUNCA reciba pedidos si esta cerrada (y que nazca cerrada);
+ *  - que el precio lo calcule el servidor: lo que mande el telefono sobre dinero se
+ *    ignora y un pedido manipulado no paga menos;
+ *  - que el envio salga de la ubicacion y que fuera de zona se rechace;
+ *  - que repetir el mismo envio no cree dos pedidos;
+ *  - que haya tope de pedidos por telefono;
+ *  - que un pedido cerrado no se reabra.
+ *
+ * Escribe y borra filas: corre contra la base de PRUEBAS.
+ */
+
+import { prisma } from '@/lib/db/prisma';
+import { PROPUESTA_INICIAL } from '@/lib/menu/propuesta-inicial';
+import { distanciaKm, estaEnCostaRica, LOCAL, tramoPara } from '@/lib/pedido/envio';
+import { validarPedido } from '@/lib/pedido/validar';
+import { aplicarPropuestaInicial, menuDeLaApp } from '@/server/services/menu-app';
+import {
+  AJUSTE_ABIERTO,
+  AJUSTE_SINPE_NUMERO,
+  cambiarEstadoDePedidoApp,
+  cotizar,
+  crearPedidoApp,
+  fijarPedidosAbiertos,
+  guardarAjuste,
+  pedidoParaElCliente,
+  pedidosAbiertos,
+  pedidosParaElLocal,
+  transicionPermitida,
+} from '@/server/services/pedidos-app';
+
+import { exigirBaseDePruebas } from './guarda-pruebas';
+
+let fallos = 0;
+
+function comprobar(que: string, real: unknown, esperado: unknown): void {
+  const bien = JSON.stringify(real) === JSON.stringify(esperado);
+  if (!bien) fallos += 1;
+  console.log(
+    `${bien ? 'OK  ' : 'MAL '} ${que}${bien ? '' : `  (${JSON.stringify(real)} != ${JSON.stringify(esperado)})`}`,
+  );
+}
+
+async function falla(que: () => Promise<unknown>): Promise<{ codigo?: string; mensaje: string } | null> {
+  try {
+    await que();
+    return null;
+  } catch (e) {
+    const x = e as { codigo?: string; message?: string };
+    return { codigo: x.codigo, mensaje: x.message ?? String(e) };
+  }
+}
+
+async function limpiar(): Promise<void> {
+  await prisma.lineaPedidoApp.deleteMany();
+  await prisma.pedidoApp.deleteMany();
+  await prisma.ajusteApp.deleteMany();
+  await prisma.complementoApp.deleteMany();
+  await prisma.varianteApp.deleteMany();
+  await prisma.itemApp.deleteMany();
+  await prisma.categoriaApp.deleteMany();
+  await prisma.productoMenu.deleteMany();
+  await prisma.grupoMenu.deleteMany();
+}
+
+/** Los productos del POS que la propuesta menciona, mas los cuatro del envio. */
+async function sembrar(): Promise<void> {
+  const ids = new Set<string>();
+  for (const c of PROPUESTA_INICIAL) {
+    for (const i of c.items) {
+      for (const v of i.variantes) ids.add(v.producto);
+      for (const x of i.complementos ?? []) ids.add(x.producto);
+    }
+  }
+  await prisma.grupoMenu.createMany({
+    data: [
+      { id: '01', nombre: 'GRUPO', clasificacion: 2 },
+      { id: '08', nombre: 'EXPRESS', clasificacion: 3 },
+    ],
+  });
+  const lista = [...ids];
+  await prisma.productoMenu.createMany({
+    data: [
+      ...lista.map((id, n) => ({
+        id,
+        nombre: `PRODUCTO ${id}`,
+        grupoId: '01',
+        areaId: '01',
+        precio: 100000 + n * 100,
+        paraDomicilio: true,
+      })),
+      { id: '08003', nombre: 'EXPRESS 1400', grupoId: '08', precio: 140000, paraDomicilio: true },
+      { id: '0105576', nombre: 'EXPRESS 1600', grupoId: '08', precio: 160000, paraDomicilio: true },
+      { id: '08007', nombre: 'EXPRESS 2000', grupoId: '08', precio: 200000, paraDomicilio: true },
+      { id: '08004', nombre: 'EXPRESS 2500', grupoId: '08', precio: 250000, paraDomicilio: true },
+    ],
+  });
+}
+
+let contador = 0;
+const clave = (): string => `prueba-${Date.now()}-${(contador += 1)}-abcdefgh`;
+
+/** Un punto a `km` kilometros al norte del local. */
+const aKm = (km: number) => ({ lat: LOCAL.lat + km / 111.19, lng: LOCAL.lng });
+
+async function main(): Promise<void> {
+  exigirBaseDePruebas();
+  await limpiar();
+
+  console.log('\n--- El envio y la ubicacion (sin base) ---');
+  comprobar('el local a si mismo: cero km', distanciaKm(LOCAL, LOCAL), 0);
+  comprobar('un grado de latitud son unos 111 km', Math.round(distanciaKm({ lat: 10, lng: -84 }, { lat: 11, lng: -84 })), 111);
+  comprobar('2 km cae en el primer tramo', tramoPara(aKm(2)).dentro && (tramoPara(aKm(2)) as { tramo: { productoMenuId: string } }).tramo.productoMenuId, '08003');
+  comprobar('el corte es inclusivo: 3 km exactos sigue en el primero', (tramoPara(aKm(2.999)) as { tramo: { productoMenuId: string } }).tramo.productoMenuId, '08003');
+  comprobar('3.5 km pasa al segundo', (tramoPara(aKm(3.5)) as { tramo: { productoMenuId: string } }).tramo.productoMenuId, '0105576');
+  comprobar('6 km, el tercero', (tramoPara(aKm(6)) as { tramo: { productoMenuId: string } }).tramo.productoMenuId, '08007');
+  comprobar('10 km, el cuarto', (tramoPara(aKm(10)) as { tramo: { productoMenuId: string } }).tramo.productoMenuId, '08004');
+  comprobar('15 km esta fuera de zona', tramoPara(aKm(15)).dentro, false);
+  comprobar('San Jose esta en Costa Rica', estaEnCostaRica({ lat: 9.93, lng: -84.08 }), true);
+  comprobar('Miami no', estaEnCostaRica({ lat: 25.76, lng: -80.19 }), false);
+  comprobar('NaN no', estaEnCostaRica({ lat: Number.NaN, lng: -84 }), false);
+
+  console.log('\n--- Validar lo que manda el telefono (sin base) ---');
+  const base = {
+    clave: 'abcdefghijklmnop',
+    nombre: 'Maria',
+    telefono: '8888-7777',
+    direccion: 'Del parque 200 norte',
+    metodoPago: 'EFECTIVO',
+    lat: 10.02,
+    lng: -84.2,
+    lineas: [{ varianteId: 'x', cantidad: 1, extras: [], notas: [] }],
+  };
+  const v = (o: Record<string, unknown>) => validarPedido({ ...base, ...o });
+  comprobar('un pedido bueno pasa', v({}).ok, true);
+  comprobar('el telefono se normaliza', (v({}) as { pedido: { telefono: string } }).pedido.telefono, '88887777');
+  comprobar('sin nombre no pasa', v({ nombre: ' ' }).ok, false);
+  comprobar('telefono corto no pasa', v({ telefono: '123' }).ok, false);
+  comprobar('direccion corta no pasa', v({ direccion: 'x' }).ok, false);
+  comprobar('clave corta no pasa', v({ clave: 'abc' }).ok, false);
+  comprobar('ubicacion a medias no pasa', v({ lng: null }).ok, false);
+  comprobar('ubicacion fuera de Costa Rica no pasa', v({ lat: 25, lng: -80 }).ok, false);
+  comprobar('metodo de pago inventado no pasa', v({ metodoPago: 'BITCOIN' }).ok, false);
+  comprobar('sin lineas no pasa', v({ lineas: [] }).ok, false);
+  comprobar('cantidad 0 no pasa', v({ lineas: [{ varianteId: 'x', cantidad: 0, extras: [], notas: [] }] }).ok, false);
+  comprobar('cantidad 21 no pasa', v({ lineas: [{ varianteId: 'x', cantidad: 21, extras: [], notas: [] }] }).ok, false);
+  comprobar('cantidad con decimales no pasa', v({ lineas: [{ varianteId: 'x', cantidad: 1.5, extras: [], notas: [] }] }).ok, false);
+  comprobar('un pedido que no es objeto no pasa', validarPedido('hola').ok, false);
+  comprobar('treinta y una lineas no pasan', v({ lineas: Array.from({ length: 31 }, () => ({ varianteId: 'x', cantidad: 1, extras: [], notas: [] })) }).ok, false);
+  comprobar('pagaCon negativo no pasa', v({ pagaCon: -5 }).ok, false);
+  const largo = (v({ nombre: 'x'.repeat(500) }) as { pedido: { nombre: string } }).pedido.nombre.length;
+  comprobar('un nombre larguisimo se corta', largo, 80);
+
+  console.log('\n--- Nace cerrada ---');
+  await sembrar();
+  await aplicarPropuestaInicial();
+  comprobar('sin ajuste, esta cerrada', await pedidosAbiertos(), false);
+
+  const menu = await menuDeLaApp();
+  const pizza = menu.find((c) => c.id === 'pizzas')!.items.find((i) => i.clave === 'pizza-la-estacion')!;
+  const familiar = pizza.variantes.find((x) => x.opciones['Tamaño'] === 'Familiar')!;
+  const queso = pizza.complementos.find((c) => c.filtro['Tamaño'] === 'Familiar' && c.etiqueta === 'Extra queso')!;
+  const quesoMediana = pizza.complementos.find((c) => c.filtro['Tamaño'] === 'Mediana' && c.etiqueta === 'Extra queso')!;
+  const entrada = (extra: Record<string, unknown> = {}) => ({
+    clave: clave(),
+    nombre: 'Maria Prueba',
+    telefono: '88887777',
+    direccion: 'Del parque 200 norte, casa verde',
+    referencia: 'Portón negro',
+    lat: aKm(2).lat,
+    lng: aKm(2).lng,
+    precisionM: 12,
+    metodoPago: 'EFECTIVO',
+    pagaCon: null,
+    lineas: [{ varianteId: familiar.id, cantidad: 2, extras: [{ complementoId: queso.id, cantidad: 1 }], notas: ['Sin cebolla'] }],
+    ...extra,
+  });
+
+  const cerrada = await falla(() => crearPedidoApp(entrada()));
+  comprobar('cerrada: rechaza con su codigo', cerrada?.codigo, 'APP_CERRADA');
+  comprobar('y no guarda nada', await prisma.pedidoApp.count(), 0);
+
+  console.log('\n--- El interruptor deja rastro ---');
+  const cajero = await prisma.cajero.create({ data: { nombre: 'Prueba', pin: 'x', rol: 'ADMIN' } });
+  await fijarPedidosAbiertos(true, cajero.id);
+  comprobar('abierta', await pedidosAbiertos(), true);
+  await fijarPedidosAbiertos(false, cajero.id);
+  comprobar('cerrada de nuevo', await pedidosAbiertos(), false);
+  comprobar('queda en la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: { in: ['APP_ABIERTA', 'APP_CERRADA'] }, cajeroId: cajero.id } }), 2);
+  await fijarPedidosAbiertos(true, cajero.id);
+
+  console.log('\n--- Un pedido bueno ---');
+  const cot = await cotizar(entrada().lineas, aKm(2));
+  const esperadoSub = (familiar.precio + queso.precio) * 2;
+  comprobar('el subtotal sale del POS', cot.subtotal, esperadoSub);
+  comprobar('el envio del tramo es el producto 08003', cot.envioProductoId, '08003');
+  comprobar('y cuesta lo que dice el POS', cot.envio, 140000);
+  comprobar('el total es la suma', cot.total, esperadoSub + 140000);
+
+  const e1 = entrada({ pagaCon: 2000000 });
+  const r1 = await crearPedidoApp(e1);
+  comprobar('se crea', r1.repetido, false);
+  comprobar('con un numero', r1.numero > 0, true);
+  comprobar('y el total correcto', r1.total, esperadoSub + 140000);
+  const guardado = await prisma.pedidoApp.findUnique({ where: { id: r1.id }, include: { lineas: true } });
+  comprobar('nace NUEVO', guardado?.estado, 'NUEVO');
+  comprobar('guarda la ubicacion', guardado?.latitud !== null && guardado?.longitud !== null, true);
+  comprobar('una linea', guardado?.lineas.length, 1);
+  comprobar('la linea apunta al producto del POS', guardado?.lineas[0]?.productoMenuId, familiar.productoMenuId);
+  comprobar('y guarda como lo vio el cliente', guardado?.lineas[0]?.detalle, 'Familiar');
+  comprobar('y los extras', (guardado?.lineas[0]?.extras as Array<{ cantidad: number }>)[0]?.cantidad, 1);
+  comprobar('y la nota', guardado?.lineas[0]?.notas, ['Sin cebolla']);
+
+  console.log('\n--- Lo que mande el telefono sobre dinero no cuenta ---');
+  const tramposo = { ...entrada(), total: 1, subtotal: 1, envio: 0, precio: 1 };
+  const rt = await crearPedidoApp(tramposo);
+  comprobar('el total lo puso el servidor', rt.total, esperadoSub + 140000);
+
+  console.log('\n--- Repetir el envio no duplica ---');
+  const antes = await prisma.pedidoApp.count();
+  const rep = await crearPedidoApp(e1);
+  comprobar('devuelve el mismo pedido', [rep.id, rep.repetido], [r1.id, true]);
+  comprobar('y no crea otro', await prisma.pedidoApp.count(), antes);
+
+  console.log('\n--- Cosas que no se cobran ---');
+  comprobar('una variante que no existe', (await falla(() => crearPedidoApp(entrada({ lineas: [{ varianteId: 'noexiste', cantidad: 1, extras: [], notas: [] }] }))))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un extra de otro tamano', (await falla(() => crearPedidoApp(entrada({ lineas: [{ varianteId: familiar.id, cantidad: 1, extras: [{ complementoId: quesoMediana.id, cantidad: 1 }], notas: [] }] }))))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('mas extras que el maximo', (await falla(() => crearPedidoApp(entrada({ lineas: [{ varianteId: familiar.id, cantidad: 1, extras: [{ complementoId: queso.id, cantidad: 9 }], notas: [] }] }))))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('sin ubicacion', (await falla(() => crearPedidoApp(entrada({ lat: null, lng: null }))))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('fuera de zona', (await falla(() => crearPedidoApp(entrada({ lat: aKm(20).lat, lng: aKm(20).lng }))))?.codigo, 'FUERA_DE_ZONA');
+  comprobar('pagaCon menor al total', (await falla(() => crearPedidoApp(entrada({ pagaCon: 1000 }))))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('con tarjeta (todavia no)', (await falla(() => crearPedidoApp(entrada({ metodoPago: 'TARJETA' }))))?.codigo, 'PAGO_NO_DISPONIBLE');
+  comprobar('con SINPE sin numero configurado', (await falla(() => crearPedidoApp(entrada({ metodoPago: 'SINPE' }))))?.codigo, 'PAGO_NO_DISPONIBLE');
+  await guardarAjuste(AJUSTE_SINPE_NUMERO, '88887777');
+  const sinpe = await crearPedidoApp(entrada({ metodoPago: 'SINPE', referenciaPago: 'ABC123', telefono: '88886666' }));
+  comprobar('con SINPE configurado, se crea', sinpe.repetido, false);
+  comprobar('guarda la referencia', (await prisma.pedidoApp.findUnique({ where: { id: sinpe.id } }))?.referenciaPago, 'ABC123');
+  comprobar('y el pago sin verificar', (await prisma.pedidoApp.findUnique({ where: { id: sinpe.id } }))?.pagoVerificado, false);
+  const sinProductoEnvio = await prisma.productoMenu.update({ where: { id: '08003' }, data: { presente: false } });
+  comprobar('si el producto de envio desaparece, no se cobra mal', (await falla(() => crearPedidoApp(entrada({ telefono: '88885555' }))))?.codigo, 'FUERA_DE_ZONA');
+  await prisma.productoMenu.update({ where: { id: sinProductoEnvio.id }, data: { presente: true } });
+  await prisma.itemApp.update({ where: { clave: 'pizza-la-estacion' }, data: { activo: false } });
+  comprobar('un plato apagado no se puede pedir', (await falla(() => crearPedidoApp(entrada({ telefono: '88884444' }))))?.codigo, 'DATOS_INVALIDOS');
+  await prisma.itemApp.update({ where: { clave: 'pizza-la-estacion' }, data: { activo: true } });
+  await prisma.productoMenu.update({ where: { id: familiar.productoMenuId }, data: { precio: 1200000 } });
+  const cotNueva = await cotizar(entrada().lineas, aKm(2));
+  comprobar('si la caja cambia el precio, la app cobra el nuevo', cotNueva.subtotal, (1200000 + queso.precio) * 2);
+
+  console.log('\n--- Tope de pedidos por telefono ---');
+  await prisma.pedidoApp.deleteMany();
+  await guardarAjuste(AJUSTE_ABIERTO, 'true');
+  for (let i = 0; i < 3; i += 1) await crearPedidoApp(entrada({ telefono: '89990000' }));
+  comprobar('al cuarto en diez minutos se frena', (await falla(() => crearPedidoApp(entrada({ telefono: '89990000' }))))?.codigo, 'DEMASIADOS_PEDIDOS');
+  comprobar('otro telefono si puede', (await crearPedidoApp(entrada({ telefono: '89991111' }))).repetido, false);
+
+  console.log('\n--- Seguimiento ---');
+  const visto = await pedidoParaElCliente(r1.id);
+  const ultimo = (await prisma.pedidoApp.findFirst({ orderBy: { createdAt: 'desc' } }))!;
+  const v2 = await pedidoParaElCliente(ultimo.id);
+  comprobar('un id que no existe no devuelve nada', await pedidoParaElCliente('abcdefghij0123'), null);
+  comprobar('un id con basura no devuelve nada', await pedidoParaElCliente("x'; DROP TABLE pedidos_app;--"), null);
+  comprobar('el cliente ve su pedido', v2?.nombre, 'Maria Prueba');
+  comprobar('y no ve el telefono de nadie', JSON.stringify(v2).includes('8999'), false);
+  void visto;
+
+  console.log('\n--- Mover un pedido ---');
+  comprobar('NUEVO puede pasar a ACEPTADO', transicionPermitida('NUEVO', 'ACEPTADO'), true);
+  comprobar('NUEVO no salta a EN_CAMINO', transicionPermitida('NUEVO', 'EN_CAMINO'), false);
+  comprobar('ENTREGADO no se reabre', transicionPermitida('ENTREGADO', 'NUEVO'), false);
+  comprobar('CANCELADO no se reabre', transicionPermitida('CANCELADO', 'ACEPTADO'), false);
+  await cambiarEstadoDePedidoApp(ultimo.id, 'ACEPTADO', cajero.id);
+  await cambiarEstadoDePedidoApp(ultimo.id, 'EN_COCINA', cajero.id);
+  comprobar('el estado cambia', (await prisma.pedidoApp.findUnique({ where: { id: ultimo.id } }))?.estado, 'EN_COCINA');
+  comprobar('un salto invalido se rechaza', (await falla(() => cambiarEstadoDePedidoApp(ultimo.id, 'ENTREGADO', cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un pedido inexistente se rechaza', (await falla(() => cambiarEstadoDePedidoApp('noexiste', 'ACEPTADO', cajero.id)))?.codigo, 'PEDIDO_NO_ENCONTRADO');
+  comprobar('cada cambio queda en la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: 'PEDIDO_APP_ESTADO', entidadId: ultimo.id } }), 2);
+
+  console.log('\n--- Lo que ve el local ---');
+  const local = await pedidosParaElLocal();
+  comprobar('lista los pedidos', local.length, 4);
+  comprobar('los mas nuevos primero', local[0]?.id, ultimo.id);
+  comprobar('con telefono y ubicacion', local[0]?.telefono !== undefined && local[0]?.ubicacion !== null, true);
+
+  await prisma.eventoAuditoria.deleteMany({ where: { cajeroId: cajero.id } });
+  await prisma.cajero.delete({ where: { id: cajero.id } });
+  await limpiar();
+  console.log(fallos === 0 ? '\nTodo bien' : `\n${fallos} fallas`);
+  await prisma.$disconnect();
+  process.exit(fallos === 0 ? 0 : 1);
+}
+
+main().catch(async (e) => {
+  console.error(e);
+  await prisma.$disconnect();
+  process.exit(1);
+});

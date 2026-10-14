@@ -34,6 +34,8 @@ function comprobar(que: string, real: unknown, esperado: unknown): void {
 }
 
 async function limpiar(): Promise<void> {
+  await prisma.lineaPedidoApp.deleteMany();
+  await prisma.pedidoApp.deleteMany();
   await prisma.complementoApp.deleteMany();
   await prisma.varianteApp.deleteMany();
   await prisma.itemApp.deleteMany();

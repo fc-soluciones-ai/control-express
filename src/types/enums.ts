@@ -55,6 +55,9 @@ export const TIPO_EVENTO = [
   'UBICACION_RECIBIDA',
   'UBICACION_ACEPTADA',
   'UBICACION_RECHAZADA',
+  'APP_ABIERTA',
+  'APP_CERRADA',
+  'PEDIDO_APP_ESTADO',
 ] as const;
 export type TipoEvento = (typeof TIPO_EVENTO)[number];
 

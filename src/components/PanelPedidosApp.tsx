@@ -1,0 +1,308 @@
+'use client';
+
+/**
+ * El panel del local para los pedidos de la app de clientes.
+ *
+ * Tres cosas que importan:
+ *  - el INTERRUPTOR de arriba, que abre o cierra la recepcion de pedidos al instante;
+ *  - la UBICACION de cada pedido, con un toque a Waze o al mapa, para que el
+ *    repartidor llegue a la puerta sin llamar a preguntar;
+ *  - el estado, que el cliente ve en su telefono.
+ */
+
+import { useCallback, useEffect, useState, useTransition } from 'react';
+
+import {
+  accionAbrirOCerrar,
+  accionCambiarEstado,
+  accionGuardarSinpe,
+  accionLeerPedidosApp,
+  accionVerificarPago,
+  type EstadoDeLaPantalla,
+} from '@/app/pedidos-app/acciones';
+import { enlaceDeMapa, enlaceDeWaze } from '@/lib/pedido/envio';
+import { formatearMoneda } from '@/lib/money/money';
+import type { EstadoDePedidoApp, PedidoParaElLocal } from '@/server/services/pedidos-app';
+
+const CADA_CUANTO_SE_LEE = 10_000;
+
+const SIGUIENTE: Partial<Record<EstadoDePedidoApp, { estado: EstadoDePedidoApp; texto: string }>> = {
+  NUEVO: { estado: 'ACEPTADO', texto: 'Aceptar' },
+  ACEPTADO: { estado: 'EN_COCINA', texto: 'Pasar a cocina' },
+  EN_COCINA: { estado: 'EN_CAMINO', texto: 'Despachado' },
+  EN_CAMINO: { estado: 'ENTREGADO', texto: 'Entregado' },
+};
+
+const COLOR_DE_ESTADO: Record<EstadoDePedidoApp, string> = {
+  NUEVO: 'bg-aviso text-black',
+  ACEPTADO: 'bg-sky-500 text-black',
+  EN_COCINA: 'bg-sky-500 text-black',
+  EN_CAMINO: 'bg-entrada text-black',
+  ENTREGADO: 'bg-slate-600 text-white',
+  CANCELADO: 'bg-alerta text-white',
+};
+
+const NOMBRE_DE_ESTADO: Record<EstadoDePedidoApp, string> = {
+  NUEVO: 'Nuevo',
+  ACEPTADO: 'Aceptado',
+  EN_COCINA: 'En cocina',
+  EN_CAMINO: 'Despachado',
+  ENTREGADO: 'Entregado',
+  CANCELADO: 'Cancelado',
+};
+
+const hora = (iso: string): string =>
+  new Date(iso).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' });
+
+export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
+  const [datos, setDatos] = useState(inicial);
+  const [error, setError] = useState<string | null>(null);
+  const [ocupado, empezar] = useTransition();
+  const [sinpeNumero, setSinpeNumero] = useState(inicial.sinpe?.numero ?? '');
+  const [sinpeNombre, setSinpeNombre] = useState(inicial.sinpe?.nombre ?? '');
+
+  const leer = useCallback(async () => {
+    try {
+      setDatos(await accionLeerPedidosApp());
+    } catch {
+      /* se reintenta en la siguiente lectura */
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(leer, CADA_CUANTO_SE_LEE);
+    return () => clearInterval(t);
+  }, [leer]);
+
+  const hacer = (accion: () => Promise<void>) =>
+    empezar(async () => {
+      setError(null);
+      try {
+        await accion();
+        await leer();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'No se pudo hacer.');
+      }
+    });
+
+  const nuevos = datos.pedidos.filter((p) => p.estado === 'NUEVO').length;
+
+  return (
+    <div className="space-y-5">
+      {/* --- El interruptor de emergencia ---------------------------------------- */}
+      <section
+        className={`flex flex-wrap items-center justify-between gap-4 rounded-2xl border-2 p-5 ${
+          datos.abierto ? 'border-entrada bg-entrada/10' : 'border-alerta bg-alerta/10'
+        }`}
+      >
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide text-slate-400">Pedidos de la app</p>
+          <p className="text-3xl font-extrabold">{datos.abierto ? '🟢 ABIERTOS' : '🔴 CERRADOS'}</p>
+          <p className="text-slate-400">
+            {datos.abierto
+              ? 'Los clientes pueden pedir. Si algo sale mal, cerralos acá y no entra ninguno más.'
+              : 'Los clientes ven el menú pero no pueden pedir. Lo que ya entró no se pierde.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={ocupado}
+          onClick={() => hacer(() => accionAbrirOCerrar(!datos.abierto))}
+          className={`min-h-tactil rounded-2xl px-8 text-xl font-extrabold ${
+            datos.abierto ? 'bg-alerta text-white' : 'bg-entrada text-black'
+          }`}
+        >
+          {datos.abierto ? 'CERRAR YA' : 'Abrir pedidos'}
+        </button>
+      </section>
+
+      {error && <p className="rounded-xl bg-alerta/20 p-3 font-semibold text-alerta">{error}</p>}
+
+      {/* --- Los pedidos -------------------------------------------------------------- */}
+      <section>
+        <h2 className="mb-3 text-xl font-bold">
+          Últimas 24 horas · {datos.pedidos.length} pedido(s){nuevos > 0 ? ` · ${nuevos} nuevo(s)` : ''}
+        </h2>
+        {datos.pedidos.length === 0 ? (
+          <p className="rounded-2xl bg-panel p-8 text-center text-slate-400">Todavía no entró ningún pedido por la app.</p>
+        ) : (
+          <ul className="space-y-4">
+            {datos.pedidos.map((p) => (
+              <FilaDePedido key={p.id} p={p} ocupado={ocupado} hacer={hacer} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* --- SINPE ------------------------------------------------------------------------ */}
+      <section className="rounded-2xl bg-panel p-5">
+        <h2 className="text-lg font-bold">SINPE Móvil para la app</h2>
+        <p className="mb-3 text-sm text-slate-400">
+          Si dejás el número vacío, la app no ofrece SINPE. Con número, el cliente lo ve al confirmar su pedido.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block text-sm text-slate-400">
+            Número (8 dígitos)
+            <input
+              className="mt-1 block min-h-tactil rounded-xl bg-fondo px-4 text-lg text-white ring-1 ring-borde"
+              value={sinpeNumero}
+              inputMode="numeric"
+              maxLength={9}
+              onChange={(e) => setSinpeNumero(e.target.value)}
+            />
+          </label>
+          <label className="block text-sm text-slate-400">
+            A nombre de
+            <input
+              className="mt-1 block min-h-tactil rounded-xl bg-fondo px-4 text-lg text-white ring-1 ring-borde"
+              value={sinpeNombre}
+              maxLength={60}
+              onChange={(e) => setSinpeNombre(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => hacer(() => accionGuardarSinpe(sinpeNumero, sinpeNombre))}
+            className="min-h-tactil rounded-xl bg-panelClaro px-6 text-lg font-bold"
+          >
+            Guardar
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function FilaDePedido({
+  p,
+  ocupado,
+  hacer,
+}: {
+  p: PedidoParaElLocal;
+  ocupado: boolean;
+  hacer: (accion: () => Promise<void>) => void;
+}) {
+  const siguiente = SIGUIENTE[p.estado];
+  const cerrado = p.estado === 'ENTREGADO' || p.estado === 'CANCELADO';
+
+  return (
+    <li className={`rounded-2xl bg-panel p-5 ${cerrado ? 'opacity-70' : ''}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-3 text-2xl font-extrabold">
+            #{p.numero}
+            <span className={`rounded-full px-3 py-1 text-sm font-bold ${COLOR_DE_ESTADO[p.estado]}`}>
+              {NOMBRE_DE_ESTADO[p.estado]}
+            </span>
+            <span className="text-base font-normal text-slate-400">{hora(p.creadoEn)}</span>
+          </p>
+          <p className="mt-1 text-lg">
+            {p.nombre} ·{' '}
+            <a href={`tel:${p.telefono}`} className="font-bold text-sky-400 underline">
+              {p.telefono}
+            </a>
+          </p>
+          <p className="text-slate-300">{p.direccion}</p>
+          {p.referencia && <p className="text-sm text-slate-400">Referencia: {p.referencia}</p>}
+        </div>
+        <p className="text-right">
+          <span className="block text-3xl font-extrabold">{formatearMoneda(p.total)}</span>
+          <span className="text-sm text-slate-400">
+            {p.metodoPago === 'EFECTIVO'
+              ? p.pagaCon
+                ? `Efectivo · paga con ${formatearMoneda(p.pagaCon)} · vuelto ${formatearMoneda(p.pagaCon - p.total)}`
+                : 'Efectivo · pago exacto'
+              : p.metodoPago === 'SINPE'
+                ? `SINPE ${p.pagoVerificado ? '· verificado ✓' : '· SIN verificar'}${p.referenciaPago ? ` · ref. ${p.referenciaPago}` : ''}`
+                : 'Tarjeta'}
+          </span>
+        </p>
+      </div>
+
+      <ul className="mt-3 space-y-1 border-t border-borde pt-3">
+        {p.lineas.map((l, i) => (
+          <li key={i}>
+            <span className="font-bold">
+              {l.cantidad} × {l.nombre}
+            </span>
+            {l.detalle && <span className="text-slate-300"> · {l.detalle}</span>}
+            {l.extras.map((e) => (
+              <span key={e} className="block pl-5 text-sm text-slate-400">
+                + {e}
+              </span>
+            ))}
+            {l.notas.map((n) => (
+              <span key={n} className="block pl-5 text-sm italic text-aviso">
+                “{n}”
+              </span>
+            ))}
+          </li>
+        ))}
+        {p.nota && <li className="text-sm italic text-aviso">Nota del pedido: “{p.nota}”</li>}
+      </ul>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {p.ubicacion ? (
+          <>
+            <a
+              href={enlaceDeWaze(p.ubicacion)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex min-h-tactil items-center rounded-xl bg-sky-500 px-5 text-lg font-bold text-black"
+            >
+              🧭 Waze
+            </a>
+            <a
+              href={enlaceDeMapa(p.ubicacion)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex min-h-tactil items-center rounded-xl bg-panelClaro px-5 text-lg font-bold"
+            >
+              📍 Mapa
+            </a>
+            <span className="text-sm text-slate-400">
+              {p.distanciaKm !== null ? `${p.distanciaKm} km` : ''}
+              {p.precisionM !== null ? ` · GPS ±${p.precisionM} m` : ''}
+            </span>
+          </>
+        ) : (
+          <span className="text-sm text-alerta">Sin ubicación</span>
+        )}
+        <span className="flex-1" />
+        {p.metodoPago === 'SINPE' && !p.pagoVerificado && !cerrado && (
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => hacer(() => accionVerificarPago(p.id))}
+            className="min-h-tactil rounded-xl bg-aviso px-5 text-lg font-bold text-black"
+          >
+            Ya llegó el SINPE
+          </button>
+        )}
+        {siguiente && (
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => hacer(() => accionCambiarEstado(p.id, siguiente.estado))}
+            className="min-h-tactil rounded-xl bg-entrada px-6 text-lg font-extrabold text-black"
+          >
+            {siguiente.texto}
+          </button>
+        )}
+        {!cerrado && (
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => {
+              if (window.confirm(`¿Cancelar el pedido #${p.numero}?`)) hacer(() => accionCambiarEstado(p.id, 'CANCELADO'));
+            }}
+            className="min-h-tactil rounded-xl bg-fondo px-5 text-lg font-bold text-alerta ring-1 ring-alerta"
+          >
+            Cancelar
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}

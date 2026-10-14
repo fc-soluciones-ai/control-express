@@ -65,9 +65,10 @@ export const MODULOS: readonly Modulo[] = [
     descripcion:
       'Los pedidos sin entregar y cuanto lleva esperando cada cliente, en vivo desde el POS.',
     inicio: '/entregas',
-    rutas: ['/', '/entregas', '/historial'],
+    rutas: ['/', '/entregas', '/historial', '/pedidos-app'],
     pantallas: [
       { href: '/entregas', etiqueta: '🛵 Tablero de entregas', permiso: 'OPERACION' },
+      { href: '/pedidos-app', etiqueta: '📱 Pedidos de la app', permiso: 'OPERACION' },
       { href: '/historial', etiqueta: '📜 Historial', permiso: 'OPERACION' },
     ],
   },

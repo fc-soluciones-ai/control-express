@@ -1152,3 +1152,49 @@ no sale en ninguna comanda.
 `npm run db:rls -- --aplicar`: una tabla nueva nace sin seguridad por filas.
 
 Prueba: `npm run test:menu`.
+
+---
+
+## 20. La app de clientes: del menú al pedido
+
+**Pantallas públicas (sin sesión).** `/pedir` es el quiosco: cabecera con tiempo
+estimado, envío y si se está recibiendo pedidos, buscador, "lo más pedido", categorías
+y platos en filas. Al tocar un plato sube una hoja con tamaño, extras, notas y
+cantidad. El carrito vive en el navegador. `Continuar` lleva a **entrega y pago**:
+ubicación por GPS, dirección y señas, nombre, teléfono, forma de pago y resumen. Al
+confirmar, `/pedir/pedido/[id]` muestra el seguimiento con una línea de tiempo que se
+actualiza sola cada 8 segundos.
+
+**Pantalla del local.** `/pedidos-app` (módulo Entregas, permiso de operación): el
+**interruptor de emergencia**, los pedidos de las últimas 24 horas con teléfono, dirección,
+ubicación (botones a Waze y al mapa), forma de pago y vuelto, y botones para mover el
+estado, confirmar un SINPE o cancelar. También se guarda ahí el número de SINPE.
+
+**El servidor no se fía del teléfono.** El teléfono manda qué plato, qué variante y
+cuántos extras; **nunca** cuánto cuesta. `cotizar` busca cada variante, recalcula el
+precio desde el producto del POS, calcula el envío desde la ubicación y suma. Un pedido
+manipulado a mano paga lo mismo que uno normal. Lo comprueba `npm run test:pedido-app`.
+
+**Seguridad de una ruta pública.** Interruptor que nace **cerrado** (sin fila en
+`ajustes_app`, la app no recibe pedidos), llave de idempotencia por pedido (tocar dos
+veces no duplica), tope de 3 pedidos por teléfono cada 10 minutos y de 80 en total,
+cuerpo máximo de 100 KB, ubicación obligatoriamente dentro de Costa Rica, y todo el
+texto limpio y acotado antes de guardarse. Cada cambio de estado y cada apertura o
+cierre del interruptor queda en la bitácora con quién lo hizo.
+
+**Envío.** `src/lib/pedido/envio.ts`. **La regla es provisional**: distancia en línea
+recta desde un punto del centro de Alajuela, en cuatro tramos (3, 5, 8 y 12 km) que
+apuntan a los productos EXPRESS 1400, 1600, 2000 y 2500 del POS. Cuando el dueño dé la
+regla real y la ubicación del local, se cambian `LOCAL` y `TRAMOS_DE_ENVIO` y nada más.
+
+**Pago.** Efectivo (con "¿con cuánto pagás?" para el vuelto) y SINPE Móvil verificado a
+mano. **Tarjeta todavía no**: necesita un proveedor de pagos, su alta comercial y
+webhooks firmados; no se improvisa.
+
+**Estados de un pedido de la app.** NUEVO, ACEPTADO, EN_COCINA, EN_CAMINO, ENTREGADO,
+CANCELADO. Un pedido cerrado no se reabre. Hoy los mueve una persona desde
+`/pedidos-app`; cuando el agente escriba el pedido en el POS, el estado seguirá al del
+espejo (`pedidos`).
+
+**Falta.** Que el agente lleve el pedido al POS (con el procedimiento probado en la
+copia) e imprima las comandas, y que `folioPos` enlace ambos mundos.

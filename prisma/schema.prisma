@@ -970,6 +970,7 @@ model ProductoMenu {
 
   variantesApp    VarianteApp[]
   complementosApp ComplementoApp[]
+  lineasPedidoApp LineaPedidoApp[]
 
   @@index([grupoId])
   @@index([presente, paraDomicilio])
@@ -1089,4 +1090,109 @@ model ComplementoApp {
 
   @@index([itemId, orden])
   @@map("complementos_app")
+}
+
+// ---------------------------------------------------------------------------
+// LOS PEDIDOS DE LA APP DE CLIENTES
+//
+// Un pedido de la app NO es un Pedido (el espejo del POS que el agente pisa con
+// upsert en cada pasada). Es otra cosa: nace aqui, en la nube, cuando el cliente
+// confirma, y despues el agente lo lleva al POS. Cuando el POS le da folio, se
+// guarda en folioPos y desde ahi el tablero de entregas lo sigue por el espejo.
+// ---------------------------------------------------------------------------
+
+/// Ajustes de la app de clientes, de a uno por clave. El interruptor de emergencia
+/// vive aqui: 'pedidos_abiertos' = 'true' | 'false'. Sin fila, esta CERRADO.
+model AjusteApp {
+  clave     String   @id
+  valor     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ajustes_app")
+}
+
+model PedidoApp {
+  /// Va en la direccion de seguimiento: no se puede adivinar.
+  id String @id @default(cuid())
+
+  /// El numero que le dice el cliente al repartidor: #1042.
+  numero Int @unique @default(autoincrement())
+
+  /// La manda el telefono al confirmar: si el cliente toca dos veces o se corta la
+  /// senal y reintenta, no se crean dos pedidos.
+  claveIdempotencia String @unique @map("clave_idempotencia")
+
+  /// NUEVO | ACEPTADO | EN_COCINA | EN_CAMINO | ENTREGADO | CANCELADO
+  estado String @default("NUEVO")
+
+  // --- Quien pide ---------------------------------------------------------
+  nombre    String
+  telefono  String
+  /// La ficha nuestra del cliente, cuando el telefono calza.
+  clienteId String? @map("cliente_id")
+
+  // --- A donde va ---------------------------------------------------------
+  direccion   String
+  referencia  String?
+  latitud     Float?
+  longitud    Float?
+  /// Precision del GPS del telefono, en metros.
+  precisionM  Int?    @map("precision_m")
+  distanciaKm Float?  @map("distancia_km")
+
+  // --- Como paga ----------------------------------------------------------
+  /// EFECTIVO | SINPE | TARJETA
+  metodoPago     String  @map("metodo_pago")
+  /// En efectivo: con cuanto va a pagar el cliente, en centimos (para el cambio).
+  pagaCon        Int?    @map("paga_con")
+  /// En SINPE: el numero de comprobante que escribio el cliente.
+  referenciaPago String? @map("referencia_pago")
+  /// Alguien del local confirmo que el SINPE llego.
+  pagoVerificado Boolean @default(false) @map("pago_verificado")
+
+  // --- El dinero, en centimos, calculado por el SERVIDOR ----------------------
+  subtotal Int
+  envio    Int
+  total    Int
+
+  nota String?
+
+  /// El folio que le dio el POS, cuando el agente lo escribio ahi.
+  folioPos String? @map("folio_pos")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  lineas LineaPedidoApp[]
+
+  @@index([estado, createdAt])
+  @@index([telefono, createdAt])
+  @@map("pedidos_app")
+}
+
+model LineaPedidoApp {
+  id       String @id @default(cuid())
+  pedidoId String @map("pedido_id")
+
+  /// El producto del POS que se cobra (lo que el agente escribe en la cuenta).
+  productoMenuId String @map("producto_menu_id")
+
+  /// Como lo vio el cliente, congelado: si el dueno renombra el plato manana, el
+  /// pedido de hoy sigue diciendo lo que el cliente pidio.
+  nombre  String
+  detalle String @default("")
+
+  cantidad     Int
+  /// Centimos de UNA unidad, sin extras.
+  precioUnidad Int      @map("precio_unidad")
+  /// [{ productoMenuId, etiqueta, cantidad, precio }]
+  extras       Json     @default("[]")
+  /// "Sin cebolla", y lo que el cliente escribio. Va tal cual a la cocina.
+  notas        String[] @default([])
+
+  pedido   PedidoApp    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  producto ProductoMenu @relation(fields: [productoMenuId], references: [id], onDelete: Restrict)
+
+  @@index([pedidoId])
+  @@map("lineas_pedido_app")
 }

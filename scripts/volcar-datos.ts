@@ -58,6 +58,10 @@ async function main(): Promise<void> {
     itemsApp: await prisma.itemApp.findMany(),
     variantesApp: await prisma.varianteApp.findMany(),
     complementosApp: await prisma.complementoApp.findMany(),
+    // Lo que los clientes pidieron por la app, y los ajustes (el interruptor, el SINPE).
+    ajustesApp: await prisma.ajusteApp.findMany(),
+    pedidosApp: await prisma.pedidoApp.findMany(),
+    lineasPedidoApp: await prisma.lineaPedidoApp.findMany(),
   };
 
   await mkdir(DESTINO, { recursive: true });

@@ -62,6 +62,8 @@ function envioBase(): EnvioDeMenu {
 
 async function limpiar(): Promise<void> {
   // Primero lo que depende de los productos (el menu de la app), si otra prueba lo dejo.
+  await prisma.lineaPedidoApp.deleteMany();
+  await prisma.pedidoApp.deleteMany();
   await prisma.complementoApp.deleteMany();
   await prisma.varianteApp.deleteMany();
   await prisma.itemApp.deleteMany();

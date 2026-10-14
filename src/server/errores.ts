@@ -22,7 +22,12 @@ export type CodigoErrorNegocio =
   | 'DATOS_INVALIDOS'
   | 'IA_NO_DISPONIBLE'
   | 'FOTO_ILEGIBLE'
-  | 'FACTURA_REPETIDA';
+  | 'FACTURA_REPETIDA'
+  | 'APP_CERRADA'
+  | 'FUERA_DE_ZONA'
+  | 'DEMASIADOS_PEDIDOS'
+  | 'PEDIDO_NO_ENCONTRADO'
+  | 'PAGO_NO_DISPONIBLE';
 
 export class ErrorNegocio extends Error {
   readonly codigo: CodigoErrorNegocio;

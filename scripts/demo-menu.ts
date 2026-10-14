@@ -43,6 +43,8 @@ async function main(): Promise<void> {
       return;
     }
 
+    await prisma.lineaPedidoApp.deleteMany();
+    await prisma.pedidoApp.deleteMany();
     await prisma.complementoApp.deleteMany();
     await prisma.varianteApp.deleteMany();
     await prisma.itemApp.deleteMany();
