@@ -95,3 +95,14 @@
     margin: 12mm;
   }
 }
+
+/* La app de los clientes es clara: la barra de desplazamiento de la caja (azul oscura)
+   desentona. Aqui es fina y discreta. */
+.cliente-app ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.cliente-app ::-webkit-scrollbar-thumb {
+  background: rgba(43, 29, 20, 0.25);
+  border-radius: 9999px;
+}

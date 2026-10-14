@@ -1208,5 +1208,18 @@ CANCELADO. Un pedido cerrado no se reabre. Hoy los mueve una persona desde
 `/pedidos-app`; cuando el agente escriba el pedido en el POS, el estado seguirá al del
 espejo (`pedidos`).
 
+**La ubicación va al principio (como Uber Eats).** La primera vez que se abre `/pedir`, 
+se abre sola la hoja **"¿Dónde te entregamos?"** (`SelectorDeUbicacion`): botón "Usar mi
+ubicación actual" (GPS), un mapa con un **pin que se mueve** (`MapaConPin`, Leaflet con
+OpenStreetMap, gratis para el piloto), las señas para llegar y una etiqueta (Casa, Trabajo).
+Apenas hay un punto, `POST /api/pedir/zona` dice si llegamos, a cuántos km, el envío y el
+tiempo, **antes de elegir un plato**. La dirección activa queda arriba en todas las
+pantallas ("Entregar en: …"), con el envío y el tiempo en la cabecera. Fuera de la zona se
+avisa ahí y no se deja continuar. Al pagar ya no se pide la ubicación: se confirma o se
+cambia. Hasta cinco direcciones, guardadas en el teléfono (`src/lib/pedido/ubicacion.ts`):
+lo que se lee del navegador se valida entero y el servidor vuelve a comprobar la
+ubicación y a calcular todo. Cuando haya cuenta con teléfono verificado, pasan al servidor
+(ver `docs/PROPUESTA-CUENTAS-Y-UBICACION.md`).
+
 **Falta.** Que el agente lleve el pedido al POS (con el procedimiento probado en la
 copia) e imprima las comandas, y que `folioPos` enlace ambos mundos.

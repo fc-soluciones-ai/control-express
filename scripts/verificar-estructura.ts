@@ -8,6 +8,20 @@
  */
 
 import {
+  LARGO_ETIQUETA,
+  LARGO_SENAS,
+  LIBRETA_VACIA,
+  MAX_DIRECCIONES,
+  direccionActiva,
+  direccionValida,
+  elegirDireccion,
+  guardarDireccion,
+  leerLibreta,
+  nuevoIdDeDireccion,
+  quitarDireccion,
+  tituloDeDireccion,
+} from '@/lib/pedido/ubicacion';
+import {
   agregarLinea,
   cambiarCantidad,
   crearLinea,
@@ -172,6 +186,41 @@ comprobar('algo que no es lista', leerCarritoGuardado('{"a":1}'), []);
 comprobar('una linea rota se descarta y las buenas se quedan', leerCarritoGuardado(JSON.stringify([{ x: 1 }, l1])).length, 1);
 comprobar('cantidad absurda se descarta', leerCarritoGuardado(JSON.stringify([{ ...l1, cantidad: 9999 }])).length, 0);
 comprobar('precio negativo se descarta', leerCarritoGuardado(JSON.stringify([{ ...l1, precioUnidad: -1 }])).length, 0);
+
+console.log('\n--- Las direcciones guardadas en el telefono ---');
+const dir = (id: string, etiqueta: string, lat = 10.02, lng = -84.2) => ({ id, etiqueta, lat, lng, precisionM: 12, senas: 'casa verde, porton negro' });
+comprobar('nada guardado: libreta vacia', leerLibreta(null), LIBRETA_VACIA);
+comprobar('basura: libreta vacia', leerLibreta('{no es json'), LIBRETA_VACIA);
+comprobar('algo que no es objeto: libreta vacia', leerLibreta('42'), LIBRETA_VACIA);
+const casa = dir('casa-0001', 'Casa');
+const trabajo = dir('trabajo-0001', 'Trabajo', 10.03, -84.21);
+let lib = guardarDireccion(LIBRETA_VACIA, casa);
+comprobar('guardar la primera la deja activa', lib.activaId, 'casa-0001');
+lib = guardarDireccion(lib, trabajo);
+comprobar('la ultima guardada pasa a ser la activa', lib.activaId, 'trabajo-0001');
+comprobar('y quedan las dos', lib.direcciones.length, 2);
+comprobar('lo guardado vuelve igual', leerLibreta(JSON.stringify(lib)).direcciones.length, 2);
+comprobar('una "Casa" nueva reemplaza a la vieja', guardarDireccion(lib, dir('casa-0002', 'Casa')).direcciones.filter((d) => d.etiqueta === 'Casa').length, 1);
+comprobar('elegir otra', elegirDireccion(lib, 'casa-0001').activaId, 'casa-0001');
+comprobar('elegir una que no existe no cambia nada', elegirDireccion(lib, 'nada-0000').activaId, 'trabajo-0001');
+comprobar('quitar la activa pasa a otra', quitarDireccion(lib, 'trabajo-0001').activaId, 'casa-0001');
+comprobar('quitar la ultima deja vacio', quitarDireccion(quitarDireccion(lib, 'trabajo-0001'), 'casa-0001').activaId, null);
+comprobar('la activa es la que dice activaId', direccionActiva(lib)?.id, 'trabajo-0001');
+let llena = LIBRETA_VACIA;
+for (let i = 0; i < 8; i += 1) llena = guardarDireccion(llena, dir(`otra-${i}-0000`, ''));
+comprobar('no pasa del maximo', llena.direcciones.length, MAX_DIRECCIONES);
+comprobar('y la ultima guardada sigue activa', llena.activaId, 'otra-7-0000');
+comprobar('una direccion fuera de Costa Rica se descarta', direccionValida(dir('miami-0001', 'Casa', 25.76, -80.19)), null);
+comprobar('una sin id valido se descarta', direccionValida({ ...casa, id: "x'; DROP" }), null);
+comprobar('una con coordenadas que no son numeros se descarta', direccionValida({ ...casa, lat: '10' }), null);
+comprobar('un texto larguisimo se corta', direccionValida({ ...casa, senas: 'x'.repeat(900) })?.senas.length, LARGO_SENAS);
+comprobar('una etiqueta larguisima se corta', direccionValida({ ...casa, etiqueta: 'e'.repeat(90) })?.etiqueta.length, LARGO_ETIQUETA);
+comprobar('lo roto se descarta y lo bueno se queda', leerLibreta(JSON.stringify({ direcciones: [{ id: 'x' }, casa], activaId: 'casa-0001' })).direcciones.length, 1);
+comprobar('una activa que no existe se corrige', leerLibreta(JSON.stringify({ direcciones: [casa], activaId: 'fantasma-0000' })).activaId, 'casa-0001');
+comprobar('el titulo junta etiqueta y senas', tituloDeDireccion(casa, 60), 'Casa · casa verde, porton negro');
+comprobar('el titulo largo se recorta', tituloDeDireccion(casa, 12).length, 12);
+comprobar('sin nada, un titulo generico', tituloDeDireccion({ ...casa, etiqueta: '', senas: '' }), 'Ubicación marcada');
+comprobar('los ids nuevos no se repiten', nuevoIdDeDireccion() === nuevoIdDeDireccion(), false);
 
 console.log(fallos === 0 ? '\nTodo bien' : `\n${fallos} fallas`);
 process.exit(fallos === 0 ? 0 : 1);

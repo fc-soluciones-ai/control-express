@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { extrasParaElServidor, totalDelCarrito, type LineaDelCarrito } from '@/lib/menu/carrito';
 import { NOMBRE_CARGO_PLATAFORMA } from '@/lib/pedido/cargos';
+import type { DireccionGuardada } from '@/lib/pedido/ubicacion';
 import { TIEMPO_ESTIMADO, enlaceDeMapa } from '@/lib/pedido/envio';
 
 import { colones, Tarjeta } from './ui';
@@ -53,12 +54,17 @@ export function Entrega({
   carrito,
   sinpe,
   abierto,
+  direccion: guardada,
+  alCambiarDireccion,
   alVolver,
   alTerminar,
 }: {
   carrito: LineaDelCarrito[];
   sinpe: boolean;
   abierto: boolean;
+  /** La direccion que se marco al abrir la app (o la que se cambio despues). */
+  direccion: DireccionGuardada | null;
+  alCambiarDireccion: () => void;
   alVolver: () => void;
   alTerminar: () => void;
 }) {
@@ -67,12 +73,12 @@ export function Entrega({
 
   const [nombre, setNombre] = useState('');
   const [telefono, setTelefono] = useState('');
-  const [direccion, setDireccion] = useState('');
-  const [referencia, setReferencia] = useState('');
   const [nota, setNota] = useState('');
-  const [ubicacion, setUbicacion] = useState<Ubicacion | null>(null);
-  const [buscando, setBuscando] = useState(false);
-  const [errorGps, setErrorGps] = useState<string | null>(null);
+  // La ubicacion sale de la direccion marcada al inicio, no se vuelve a pedir aqui.
+  const ubicacion: Ubicacion | null = guardada
+    ? { lat: guardada.lat, lng: guardada.lng, precisionM: guardada.precisionM }
+    : null;
+  const direccion = guardada ? [guardada.etiqueta, guardada.senas].filter((t) => t !== '').join(': ') : '';
   const [metodo, setMetodo] = useState<MetodoDePago>('EFECTIVO');
   const [pagaCon, setPagaCon] = useState<number | null>(null); // centimos; null = exacto
   const [otroMonto, setOtroMonto] = useState('');
@@ -100,14 +106,10 @@ export function Entrega({
       const guardado = JSON.parse(window.localStorage.getItem(CLAVE_DATOS) ?? 'null') as {
         nombre?: string;
         telefono?: string;
-        direccion?: string;
-        referencia?: string;
       } | null;
       if (guardado) {
         setNombre(guardado.nombre ?? '');
         setTelefono(guardado.telefono ?? '');
-        setDireccion(guardado.direccion ?? '');
-        setReferencia(guardado.referencia ?? '');
       }
     } catch {
       /* sin datos guardados */
@@ -115,8 +117,11 @@ export function Entrega({
   }, []);
 
   // El envio y el total, calculados por el servidor, apenas hay ubicacion.
+  const ubicacionLat = ubicacion?.lat;
+  const ubicacionLng = ubicacion?.lng;
   useEffect(() => {
-    if (!ubicacion) {
+    // Con el carrito vacio (recien confirmado) no hay nada que cotizar.
+    if (ubicacionLat === undefined || ubicacionLng === undefined || lineas.length === 0) {
       setCotizacion(null);
       return;
     }
@@ -125,7 +130,7 @@ export function Entrega({
     fetch('/api/pedir/cotizar', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ lineas, lat: ubicacion.lat, lng: ubicacion.lng }),
+      body: JSON.stringify({ lineas, lat: ubicacionLat, lng: ubicacionLng }),
     })
       .then(async (r) => {
         const datos = await r.json();
@@ -142,31 +147,7 @@ export function Entrega({
     return () => {
       vigente = false;
     };
-  }, [ubicacion, lineas]);
-
-  const pedirUbicacion = () => {
-    setErrorGps(null);
-    if (!('geolocation' in navigator)) {
-      setErrorGps('Este teléfono no permite compartir la ubicación.');
-      return;
-    }
-    setBuscando(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setUbicacion({ lat: pos.coords.latitude, lng: pos.coords.longitude, precisionM: Math.round(pos.coords.accuracy) });
-        setBuscando(false);
-      },
-      (e) => {
-        setBuscando(false);
-        setErrorGps(
-          e.code === e.PERMISSION_DENIED
-            ? 'No nos diste permiso para ver tu ubicación. Activala en los ajustes del navegador y volvé a tocar el botón.'
-            : 'No pudimos encontrar tu ubicación. Salí a un lugar abierto y probá otra vez.',
-        );
-      },
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 30_000 },
-    );
-  };
+  }, [ubicacionLat, ubicacionLng, lineas]);
 
   const total = cotizacion?.total ?? null;
 
@@ -205,7 +186,7 @@ export function Entrega({
           nombre,
           telefono,
           direccion,
-          referencia: referencia || null,
+          referencia: null,
           lat: ubicacion.lat,
           lng: ubicacion.lng,
           precisionM: ubicacion.precisionM,
@@ -223,7 +204,7 @@ export function Entrega({
         return;
       }
       try {
-        window.localStorage.setItem(CLAVE_DATOS, JSON.stringify({ nombre, telefono, direccion, referencia }));
+        window.localStorage.setItem(CLAVE_DATOS, JSON.stringify({ nombre, telefono }));
       } catch {
         /* no pasa nada */
       }
@@ -254,54 +235,41 @@ export function Entrega({
 
       <div className="space-y-4 px-4 pt-2">
         <Tarjeta titulo="¿Dónde te lo llevamos?">
-          <button
-            type="button"
-            onClick={pedirUbicacion}
-            disabled={buscando}
-            className={`flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-2xl px-4 text-lg font-extrabold shadow-sm ${
-              ubicacion ? 'bg-albahaca/10 text-albahaca ring-2 ring-albahaca' : 'bg-tomate text-white'
-            }`}
-          >
-            <span aria-hidden>📍</span>
-            {buscando ? 'Buscando tu ubicación…' : ubicacion ? 'Ubicación guardada · tocá para actualizarla' : 'Usar mi ubicación actual'}
-          </button>
-          {ubicacion && (
-            <p className="mt-2 text-sm text-tinta/70">
-              Precisión de unos {ubicacion.precisionM} m.{' '}
-              <a href={enlaceDeMapa(ubicacion)} target="_blank" rel="noreferrer" className="font-bold text-tomate underline">
-                Ver en el mapa
-              </a>
-            </p>
+          {guardada ? (
+            <div className="flex items-center gap-3">
+              <span aria-hidden className="text-3xl">
+                {guardada.etiqueta === 'Trabajo' ? '💼' : guardada.etiqueta === 'Casa' ? '🏠' : '📍'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold">{guardada.etiqueta || 'Ubicación marcada'}</p>
+                <p className="text-tinta/80">{guardada.senas}</p>
+                <a
+                  href={enlaceDeMapa({ lat: guardada.lat, lng: guardada.lng })}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-bold text-tomate underline"
+                >
+                  Ver en el mapa
+                </a>
+              </div>
+              <button
+                type="button"
+                onClick={alCambiarDireccion}
+                className="min-h-[2.75rem] shrink-0 rounded-full bg-crema px-4 text-base font-bold ring-1 ring-black/10"
+              >
+                Cambiar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={alCambiarDireccion}
+              className="flex min-h-[3.75rem] w-full items-center justify-center gap-2 rounded-2xl bg-tomate px-4 text-lg font-extrabold text-white shadow-sm"
+            >
+              <span aria-hidden>📍</span>
+              Marcar dónde te entregamos
+            </button>
           )}
-          {errorGps && <p className="mt-2 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-800">{errorGps}</p>}
-          {!ubicacion && !errorGps && (
-            <p className="mt-2 text-sm text-tinta/60">
-              Con tu ubicación el repartidor llega a tu puerta y te calculamos el envío exacto.
-            </p>
-          )}
-          <label className="mt-4 block text-sm font-bold text-tinta/70" htmlFor="dir">
-            Dirección y señas
-          </label>
-          <input
-            id="dir"
-            className={`${campo} mt-1`}
-            value={direccion}
-            maxLength={200}
-            onChange={(e) => setDireccion(e.target.value)}
-            placeholder="Barrio, calle, casa o apartamento"
-            autoComplete="street-address"
-          />
-          <label className="mt-3 block text-sm font-bold text-tinta/70" htmlFor="ref">
-            Referencia (opcional)
-          </label>
-          <input
-            id="ref"
-            className={`${campo} mt-1`}
-            value={referencia}
-            maxLength={200}
-            onChange={(e) => setReferencia(e.target.value)}
-            placeholder="Portón negro, frente a la escuela…"
-          />
         </Tarjeta>
 
         <Tarjeta titulo="¿Quién recibe?">
@@ -468,7 +436,7 @@ export function Entrega({
           disabled={!puedeConfirmar}
           className="mx-auto flex min-h-[4rem] w-full max-w-xl items-center justify-between rounded-2xl bg-albahaca px-5 text-lg font-extrabold text-white shadow-xl disabled:bg-black/25 disabled:shadow-none"
         >
-          <span>{enviando ? 'Enviando tu pedido…' : ubicacion ? 'Confirmar pedido' : 'Primero compartí tu ubicación'}</span>
+          <span>{enviando ? 'Enviando tu pedido…' : ubicacion ? 'Confirmar pedido' : 'Primero marcá dónde te entregamos'}</span>
           {cotizacion && <span>{colones(cotizacion.total)}</span>}
         </button>
       </div>

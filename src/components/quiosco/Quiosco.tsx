@@ -27,13 +27,26 @@ import {
 } from '@/lib/menu/carrito';
 import { DESTACADOS, emojiDe, fondoDe, paraBuscar } from '@/lib/menu/presentacion';
 import { TIEMPO_ESTIMADO } from '@/lib/pedido/envio';
+import {
+  LIBRETA_VACIA,
+  direccionActiva,
+  elegirDireccion,
+  guardarDireccion,
+  leerLibreta,
+  quitarDireccion,
+  tituloDeDireccion,
+  type Libreta,
+} from '@/lib/pedido/ubicacion';
 import type { CategoriaDelMenu, ItemDelMenu } from '@/server/services/menu-app';
 
 import { Entrega } from './Entrega';
 import { HojaDeProducto } from './HojaDeProducto';
+import { SelectorDeUbicacion } from './SelectorDeUbicacion';
 import { colones, Contador, Hoja } from './ui';
 
 const CLAVE_GUARDADA = 'pedido-en-curso-v1';
+const CLAVE_DIRECCIONES = 'direcciones-v1';
+const CLAVE_SELECTOR_VISTO = 'selector-de-ubicacion-visto';
 
 const ICONO_DE_CATEGORIA: Record<string, string> = {
   pizzas: '🍕',
@@ -45,6 +58,15 @@ const ICONO_DE_CATEGORIA: Record<string, string> = {
   postres: '🍰',
   adicionales: '🍟',
 };
+
+/** Lo que contesta /api/pedir/zona. */
+interface ZonaDeEntrega {
+  dentro: boolean;
+  km: number;
+  envio: number | null;
+  cargoApp: number;
+  tiempo: { desde: number; hasta: number };
+}
 
 export interface InfoParaElQuiosco {
   abierto: boolean;
@@ -61,6 +83,10 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
   const [paso, setPaso] = useState<'menu' | 'entrega'>('menu');
   const [carrito, setCarrito] = useState<LineaDelCarrito[]>([]);
   const [cargado, setCargado] = useState(false);
+  const [libreta, setLibreta] = useState<Libreta>(LIBRETA_VACIA);
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
+  const [primeraVez, setPrimeraVez] = useState(false);
+  const [zona, setZona] = useState<ZonaDeEntrega | null>(null);
 
   // El carrito sobrevive a recargar la pagina o a que se cierre el navegador.
   useEffect(() => {
@@ -79,6 +105,83 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
       /* idem */
     }
   }, [carrito, cargado]);
+
+  // Las direcciones guardadas, y la pregunta "donde te entregamos" la primera vez,
+  // como Uber Eats: antes de escoger un plato.
+  useEffect(() => {
+    let l = LIBRETA_VACIA;
+    try {
+      l = leerLibreta(window.localStorage.getItem(CLAVE_DIRECCIONES));
+    } catch {
+      /* sin almacenamiento */
+    }
+    setLibreta(l);
+    if (direccionActiva(l) === null && info.abierto) {
+      let visto = false;
+      try {
+        visto = window.sessionStorage.getItem(CLAVE_SELECTOR_VISTO) === '1';
+        window.sessionStorage.setItem(CLAVE_SELECTOR_VISTO, '1');
+      } catch {
+        /* idem */
+      }
+      if (!visto) {
+        setPrimeraVez(true);
+        setSelectorAbierto(true);
+      }
+    }
+  }, [info.abierto]);
+  const guardarLibreta = (nueva: Libreta) => {
+    setLibreta(nueva);
+    try {
+      window.localStorage.setItem(CLAVE_DIRECCIONES, JSON.stringify(nueva));
+    } catch {
+      /* idem */
+    }
+  };
+
+  // Lo que dice el servidor de la direccion activa: llegamos o no, envio y tiempo.
+  const activa = direccionActiva(libreta);
+  const activaLat = activa?.lat;
+  const activaLng = activa?.lng;
+  useEffect(() => {
+    if (activaLat === undefined || activaLng === undefined) {
+      setZona(null);
+      return;
+    }
+    let vigente = true;
+    fetch('/api/pedir/zona', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ lat: activaLat, lng: activaLng }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((z) => {
+        if (vigente) setZona(z as ZonaDeEntrega | null);
+      })
+      .catch(() => undefined);
+    return () => {
+      vigente = false;
+    };
+  }, [activaLat, activaLng]);
+  const fueraDeZona = zona !== null && !zona.dentro;
+
+  const selector = selectorAbierto ? (
+    <SelectorDeUbicacion
+      libreta={libreta}
+      obligatorio={primeraVez}
+      alCerrar={() => {
+        setSelectorAbierto(false);
+        setPrimeraVez(false);
+      }}
+      alGuardar={(d) => {
+        guardarLibreta(guardarDireccion(libreta, d));
+        setSelectorAbierto(false);
+        setPrimeraVez(false);
+      }}
+      alElegir={(id) => guardarLibreta(elegirDireccion(libreta, id))}
+      alQuitar={(id) => guardarLibreta(quitarDireccion(libreta, id))}
+    />
+  ) : null;
 
   const categoria = menu.find((c) => c.id === categoriaId) ?? menu[0];
   const unidades = unidadesDelCarrito(carrito);
@@ -110,13 +213,18 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
 
   if (paso === 'entrega') {
     return (
-      <Entrega
-        carrito={carrito}
-        sinpe={info.sinpe}
-        abierto={info.abierto}
-        alVolver={() => setPaso('menu')}
-        alTerminar={() => setCarrito([])}
-      />
+      <>
+        <Entrega
+          carrito={carrito}
+          sinpe={info.sinpe}
+          abierto={info.abierto}
+          direccion={activa}
+          alCambiarDireccion={() => setSelectorAbierto(true)}
+          alVolver={() => setPaso('menu')}
+          alTerminar={() => setCarrito([])}
+        />
+        {selector}
+      </>
     );
   }
 
@@ -131,17 +239,39 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
             <p className="text-sm text-white/85">Pizza, pollo y hamburguesas a tu casa</p>
           </div>
         </div>
-        <ul className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
+        <button
+          type="button"
+          onClick={() => setSelectorAbierto(true)}
+          className="mt-4 flex min-h-[3.25rem] w-full items-center gap-2 rounded-2xl bg-white/15 px-4 text-left ring-1 ring-white/30"
+        >
+          <span aria-hidden className="text-xl">
+            📍
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-bold uppercase tracking-wide text-white/75">Entregar en</span>
+            <span className="block truncate text-base font-extrabold">
+              {activa ? tituloDeDireccion(activa, 44) : '¿Dónde te entregamos?'}
+            </span>
+          </span>
+          <span aria-hidden className="text-lg">
+            ▾
+          </span>
+        </button>
+        <ul className="mt-3 flex flex-wrap gap-2 text-sm font-bold">
           <li className="rounded-full bg-white/20 px-3 py-1.5">
-            ⏱ {TIEMPO_ESTIMADO.desde}–{TIEMPO_ESTIMADO.hasta} min
+            ⏱ {(zona?.tiempo ?? TIEMPO_ESTIMADO).desde}–{(zona?.tiempo ?? TIEMPO_ESTIMADO).hasta} min
           </li>
           <li className="rounded-full bg-white/20 px-3 py-1.5">
             🛵 Envío{' '}
-            {info.envioDesde === null
-              ? 'según tu zona'
-              : info.envioFijo
-                ? colones(info.envioDesde)
-                : `desde ${colones(info.envioDesde)}`}
+            {zona
+              ? zona.envio !== null
+                ? colones(zona.envio)
+                : 'fuera de zona'
+              : info.envioDesde === null
+                ? 'según tu zona'
+                : info.envioFijo
+                  ? colones(info.envioDesde)
+                  : `desde ${colones(info.envioDesde)}`}
           </li>
           <li className={`rounded-full px-3 py-1.5 ${info.abierto ? 'bg-albahaca' : 'bg-black/40'}`}>
             {info.abierto ? '● Recibiendo pedidos' : '● Cerrado por ahora'}
@@ -158,6 +288,16 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
           />
         </label>
       </header>
+
+      {fueraDeZona && (
+        <p className="mx-4 mt-4 rounded-2xl bg-red-50 p-4 text-base font-semibold text-red-800">
+          Todavía no llegamos hasta tu ubicación ({zona?.km} km). Podés cambiarla o llamarnos al{' '}
+          <a href="tel:24877021" className="underline">
+            2487-7021
+          </a>
+          .
+        </p>
+      )}
 
       {!info.abierto && (
         <p className="mx-4 mt-4 rounded-2xl bg-amber-100 p-4 text-base font-semibold text-amber-900">
@@ -284,6 +424,8 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
         />
       )}
 
+      {selector}
+
       {verCarrito && (
         <HojaDelCarrito
           carrito={carrito}
@@ -292,9 +434,14 @@ export function Quiosco({ menu, info }: { menu: CategoriaDelMenu[]; info: InfoPa
           alCambiar={(llave, cantidad) => setCarrito((c) => cambiarCantidad(c, llave, cantidad))}
           alContinuar={() => {
             setVerCarrito(false);
+            if (activa === null) {
+              setSelectorAbierto(true);
+              return;
+            }
             setPaso('entrega');
             window.scrollTo({ top: 0 });
           }}
+          fueraDeZona={fueraDeZona}
         />
       )}
     </div>
@@ -344,12 +491,14 @@ function HojaDelCarrito({
   alCerrar,
   alCambiar,
   alContinuar,
+  fueraDeZona,
 }: {
   carrito: LineaDelCarrito[];
   abierto: boolean;
   alCerrar: () => void;
   alCambiar: (llave: string, cantidad: number) => void;
   alContinuar: () => void;
+  fueraDeZona: boolean;
 }) {
   const total = totalDelCarrito(carrito);
 
@@ -368,10 +517,10 @@ function HojaDelCarrito({
             <button
               type="button"
               onClick={alContinuar}
-              disabled={!abierto}
+              disabled={!abierto || fueraDeZona}
               className="min-h-[3.75rem] w-full rounded-2xl bg-albahaca px-4 text-lg font-extrabold text-white shadow-lg disabled:bg-black/20 disabled:shadow-none"
             >
-              {abierto ? 'Continuar con la entrega' : 'Por ahora no recibimos pedidos'}
+              {!abierto ? 'Por ahora no recibimos pedidos' : fueraDeZona ? 'Tu ubicación está fuera de la zona' : 'Continuar con la entrega'}
             </button>
           </div>
         ) : undefined

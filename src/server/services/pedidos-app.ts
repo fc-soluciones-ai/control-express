@@ -30,7 +30,7 @@ import {
   comoModoDeEnvio,
   type ModoDeEnvio,
 } from '@/lib/pedido/cargos';
-import { TRAMOS_DE_ENVIO, tramoPara, type Coordenada } from '@/lib/pedido/envio';
+import { TIEMPO_ESTIMADO, TRAMOS_DE_ENVIO, tramoPara, type Coordenada } from '@/lib/pedido/envio';
 import { validarPedido, type LineaEntrante, type PedidoEntrante } from '@/lib/pedido/validar';
 import { ErrorNegocio } from '@/server/errores';
 import { registrarEvento } from '@/server/services/auditoria';
@@ -318,6 +318,46 @@ export async function cotizar(
     total: subtotal + envio + CARGO_PLATAFORMA,
     distanciaKm: Math.round(tramo.km * 10) / 10,
   };
+}
+
+// ---------------------------------------------------------------------------
+// La zona: lo que se sabe apenas el cliente marca donde esta
+// ---------------------------------------------------------------------------
+
+export interface Zona {
+  /** true si llegamos hasta ahi. */
+  dentro: boolean;
+  /** Kilometros en linea recta desde el local, con un decimal. */
+  km: number;
+  /** Centimos. null si queda fuera de la zona. */
+  envio: number | null;
+  cargoApp: number;
+  /** Minutos que se le dicen al cliente. */
+  tiempo: { desde: number; hasta: number };
+}
+
+/**
+ * Lo que cuesta el envio y si llegamos, SIN armar un pedido. Es lo que alimenta la
+ * cabecera de la app apenas el cliente marca su ubicacion, como en Uber Eats: antes
+ * de elegir un solo plato ya sabe cuanto cuesta y cuanto tarda.
+ *
+ * Fuera de zona no es un error: es una respuesta, y la pantalla la explica.
+ */
+export async function cotizarZona(ubicacion: Coordenada): Promise<Zona> {
+  const tramo = tramoPara(ubicacion);
+  const km = Math.round(tramo.km * 10) / 10;
+  if (!tramo.dentro) {
+    return { dentro: false, km, envio: null, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
+  }
+  const config = await configDeEnvio();
+  if (config.modo === 'FIJO') {
+    return { dentro: true, km, envio: config.fijo, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
+  }
+  const producto = await prisma.productoMenu.findUnique({ where: { id: tramo.tramo.productoMenuId } });
+  if (!producto || !producto.presente) {
+    return { dentro: false, km, envio: null, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
+  }
+  return { dentro: true, km, envio: producto.precio, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
 }
 
 /** Lo que ve el cliente antes de confirmar: totales y envio, sin guardar nada. */

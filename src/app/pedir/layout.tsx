@@ -19,5 +19,5 @@ export const viewport: Viewport = {
 };
 
 export default function DisenoDePedir({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-screen bg-crema text-tinta">{children}</div>;
+  return <div className="cliente-app min-h-screen bg-crema text-tinta">{children}</div>;
 }

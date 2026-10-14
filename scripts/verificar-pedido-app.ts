@@ -27,6 +27,7 @@ import {
   cambiarEstadoDePedidoApp,
   configDeEnvio,
   cotizar,
+  cotizarZona,
   crearPedidoApp,
   fijarConfigDeEnvio,
   fijarPedidosAbiertos,
@@ -227,6 +228,25 @@ async function main(): Promise<void> {
   comprobar('un monto absurdo se rechaza', (await falla(() => fijarConfigDeEnvio('FIJO', 5_000_000, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
   await fijarConfigDeEnvio('DISTANCIA', 1500, cajero.id);
   comprobar('por distancia: el modo cambia', (await configDeEnvio()).modo, 'DISTANCIA');
+
+  console.log('\n--- La zona: se sabe apenas el cliente marca donde esta ---');
+  await fijarConfigDeEnvio('FIJO', 1500, cajero.id);
+  const z1 = await cotizarZona(aKm(2));
+  comprobar('dentro de la zona', z1.dentro, true);
+  comprobar('el envio fijo', z1.envio, 150000);
+  comprobar('los kilometros con un decimal', z1.km, 2);
+  comprobar('el cargo de la plataforma viaja', z1.cargoApp, 25000);
+  comprobar('y el tiempo estimado', [z1.tiempo.desde, z1.tiempo.hasta], [35, 50]);
+  const z2 = await cotizarZona(aKm(20));
+  comprobar('fuera de la zona no es un error', z2.dentro, false);
+  comprobar('y no trae envio', z2.envio, null);
+  comprobar('pero dice a cuantos km queda', z2.km, 20);
+  await fijarConfigDeEnvio('DISTANCIA', 1500, cajero.id);
+  comprobar('por distancia: 2 km cuesta lo de la caja (1.400)', (await cotizarZona(aKm(2))).envio, 140000);
+  comprobar('por distancia: 6 km cuesta 2.000', (await cotizarZona(aKm(6))).envio, 200000);
+  await prisma.productoMenu.update({ where: { id: '08003' }, data: { presente: false } });
+  comprobar('si falta el producto del envio, se dice fuera de zona y no se cobra mal', (await cotizarZona(aKm(2))).dentro, false);
+  await prisma.productoMenu.update({ where: { id: '08003' }, data: { presente: true } });
 
   console.log('\n--- Un pedido bueno (envio por distancia) ---');
   const cot = await cotizar(entrada().lineas, aKm(2));
