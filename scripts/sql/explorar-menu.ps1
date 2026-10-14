@@ -216,16 +216,19 @@ Seccion '4. EL HORARIO REAL DEL LOCAL (pedidos a domicilio, ultimos 60 dias)' {
   Escribir '  Hora de la primera y de la ultima cuenta de cada dia de la semana, y el promedio'
   Escribir '  de cuentas por dia. Dia 1 = domingo ... 7 = sabado.'
   Escribir ''
+  # SQL Server 2014 no puede promediar horas: se promedian los minutos desde la medianoche.
   MostrarTabla (Consultar $cadena "
     SELECT dia_semana, COUNT(*) AS dias_con_ventas,
-           CONVERT(varchar(5), CAST(AVG(CAST(CAST(primera AS time) AS datetime)) AS time), 108) AS primera_promedio,
-           CONVERT(varchar(5), MIN(CAST(primera AS time)), 108) AS primera_mas_temprano,
-           CONVERT(varchar(5), CAST(AVG(CAST(CAST(ultima AS time) AS datetime)) AS time), 108) AS ultima_promedio,
-           CONVERT(varchar(5), MAX(CAST(ultima AS time)), 108) AS ultima_mas_tarde,
+           RIGHT('0' + CAST(AVG(min_primera) / 60 AS varchar(2)), 2) + ':' + RIGHT('0' + CAST(AVG(min_primera) % 60 AS varchar(2)), 2) AS primera_promedio,
+           RIGHT('0' + CAST(MIN(min_primera) / 60 AS varchar(2)), 2) + ':' + RIGHT('0' + CAST(MIN(min_primera) % 60 AS varchar(2)), 2) AS primera_mas_temprano,
+           RIGHT('0' + CAST(AVG(min_ultima) / 60 AS varchar(2)), 2) + ':' + RIGHT('0' + CAST(AVG(min_ultima) % 60 AS varchar(2)), 2) AS ultima_promedio,
+           RIGHT('0' + CAST(MAX(min_ultima) / 60 AS varchar(2)), 2) + ':' + RIGHT('0' + CAST(MAX(min_ultima) % 60 AS varchar(2)), 2) AS ultima_mas_tarde,
            AVG(cuentas) AS cuentas_por_dia
     FROM (
       SELECT DATEPART(weekday, fecha) AS dia_semana, CAST(fecha AS date) AS dia,
-             MIN(fecha) AS primera, MAX(fecha) AS ultima, COUNT(*) AS cuentas
+             DATEPART(hour, MIN(fecha)) * 60 + DATEPART(minute, MIN(fecha)) AS min_primera,
+             DATEPART(hour, MAX(fecha)) * 60 + DATEPART(minute, MAX(fecha)) AS min_ultima,
+             COUNT(*) AS cuentas
       FROM dbo.cheques
       WHERE tipodeservicio = 2 AND cancelado = 0 AND fecha >= DATEADD(day, -60, GETDATE())
       GROUP BY DATEPART(weekday, fecha), CAST(fecha AS date)
