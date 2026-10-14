@@ -21,6 +21,12 @@ const config: Config = {
         // "alerta" a proposito: en el tablero va relleno, no solo en el borde,
         // y tiene que ganarle a cualquier otra cosa de la pantalla.
         critico: '#e11d48',
+        // La app de los clientes: los colores del logo (tren rojo, verde, crema).
+        tomate: '#c8281e',
+        albahaca: '#2f7d32',
+        crema: '#fff6e6',
+        masa: '#f3e0bd',
+        tinta: '#2b1d14',
       },
       spacing: {
         tactil: '4rem', // 64 px, minimo de un objetivo tactil

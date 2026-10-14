@@ -968,7 +968,125 @@ model ProductoMenu {
 
   grupo GrupoMenu? @relation(fields: [grupoId], references: [id], onDelete: SetNull)
 
+  variantesApp    VarianteApp[]
+  complementosApp ComplementoApp[]
+
   @@index([grupoId])
   @@index([presente, paraDomicilio])
   @@map("productos_menu")
+}
+
+// ---------------------------------------------------------------------------
+// EL MENU DE LA APP (el que ve el cliente)
+//
+// El menu del POS es el de la caja: cada tamano y cada acompanamiento es un
+// producto distinto, y hay duplicados. No se toca. Este es otro menu, armado a
+// mano para el cliente, estilo quiosco: pocas decisiones por pantalla. Cada
+// opcion que el cliente elige apunta a UN producto del POS (ProductoMenu), que
+// es lo que hace que la cuenta caiga bien en la caja, que el precio sea el de la
+// caja y que la comanda salga por la impresora de su area.
+//
+// El precio NUNCA se guarda aqui: se lee del producto del POS, para que la app y
+// la caja no puedan cobrar distinto.
+// ---------------------------------------------------------------------------
+
+/// Una ficha grande de la pantalla de inicio: Pizzas, Pollo, Parrilla...
+model CategoriaApp {
+  /// Clave estable ('pizzas'). La propuesta inicial la usa para no duplicar.
+  id String @id
+
+  nombre String
+  orden  Int     @default(0)
+  activa Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  items ItemApp[]
+
+  @@map("categorias_app")
+}
+
+/// Lo que el cliente ve como un solo plato: "Pizza La Estacion", "Muslo y cuarto".
+model ItemApp {
+  id String @id @default(cuid())
+
+  /// Clave estable ('pizza-la-estacion'). La propuesta inicial la usa para no
+  /// duplicar ni pisar lo que el dueno ya cambio.
+  clave String @unique
+
+  categoriaId String @map("categoria_id")
+
+  nombre      String
+  descripcion String?
+  orden       Int     @default(0)
+
+  /// El dueno puede apagar un plato sin borrarlo.
+  activo Boolean @default(true)
+
+  /// Las decisiones de este plato, en el orden en que se le preguntan al cliente
+  /// (["Piezas", "Papas"]). Aparte porque la base no conserva el orden de las claves
+  /// de un JSON.
+  ejes String[] @default([])
+
+  /// Frases cortas que el cliente toca para pedir algo especial ("Sin cebolla").
+  /// Van tal cual en el renglon de la cuenta, que es lo que lee la cocina.
+  notasRapidas String[] @default([]) @map("notas_rapidas")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  categoria    CategoriaApp     @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  variantes    VarianteApp[]
+  complementos ComplementoApp[]
+
+  @@index([categoriaId, orden])
+  @@map("items_app")
+}
+
+/// Una combinacion elegible de un plato, y el producto del POS al que equivale.
+///
+/// opciones: lo que el cliente decidio para llegar aqui, por ejemplo
+/// {"Tamano": "Familiar"} o {"Piezas": "Pechuga y cuarto", "Papas": "Agrandadas"}.
+/// Un plato sin decisiones tiene {} y una sola variante.
+model VarianteApp {
+  id String @id @default(cuid())
+
+  itemId         String @map("item_id")
+  productoMenuId String @map("producto_menu_id")
+
+  opciones Json @default("{}")
+  orden    Int  @default(0)
+
+  item     ItemApp      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  producto ProductoMenu @relation(fields: [productoMenuId], references: [id], onDelete: Restrict)
+
+  @@unique([itemId, productoMenuId])
+  @@index([itemId, orden])
+  @@map("variantes_app")
+}
+
+/// Un extra que se le puede agregar a un plato ("Extra queso"), con el producto
+/// del POS que se cobra.
+///
+/// filtro: en que variantes aplica. {"Tamano": "Familiar"} = solo si eligio la
+/// familiar (el extra de la familiar es otro producto que el de la personal).
+/// {} = siempre.
+model ComplementoApp {
+  id String @id @default(cuid())
+
+  itemId         String @map("item_id")
+  productoMenuId String @map("producto_menu_id")
+
+  etiqueta String
+  filtro   Json   @default("{}")
+  /// Cuantos se pueden agregar de este extra.
+  maximo   Int    @default(3)
+  orden    Int    @default(0)
+
+  item     ItemApp      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  producto ProductoMenu @relation(fields: [productoMenuId], references: [id], onDelete: Restrict)
+
+  @@index([itemId, orden])
+  @@map("complementos_app")
 }

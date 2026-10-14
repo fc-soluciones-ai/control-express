@@ -80,11 +80,28 @@ acompañamiento, y no tres productos casi iguales.
 4. Si se empieza solo con lo principal (pizza, pollo, parrilla, hamburguesas) y
    el resto va en una segunda etapa.
 
-## Cómo se construye
+## Cómo se construye (y qué ya está hecho)
 
-Tablas nuevas, que no tocan el POS: categorías, productos de la app, y las
-variantes de cada uno (qué combinación de tamaño y acompañamiento corresponde a
-qué producto del POS). Primero una propuesta automática armada con los nombres
-del POS, y una pantalla para que el dueño la revise: renombrar, ocultar,
-reordenar, poner foto y aprobar. Las fotos que ya están en el POS (unas 145) se
-pueden aprovechar.
+**Hecho (13 de octubre de 2026).** La primera etapa, solo lo principal:
+
+- Tablas que no tocan el POS: `categorias_app`, `items_app`, `variantes_app`
+  (qué combinación de tamaño y acompañamiento corresponde a qué producto del POS)
+  y `complementos_app` (los extras, que dependen del tamaño).
+- La propuesta inicial, en `src/lib/menu/propuesta-inicial.ts`: **5 categorías,
+  43 platos, 87 variantes y 423 extras**, armada con los productos reales del POS y
+  sin ningún producto faltante. Solo agrega: nunca pisa lo que el dueño cambie.
+- La pantalla del cliente en `/pedir`, estilo quiosco: fichas de categoría,
+  hoja de producto desde abajo (tamaño, acompañamiento, extras con más y menos,
+  notas rápidas, cantidad), y carrito siempre visible. El carrito sobrevive a
+  recargar la página.
+- Pruebas: `npm run test:estructura` (la lógica del menú y el carrito),
+  `npm run test:menu-app` (la base).
+
+**Falta.** Datos de entrega y pago, el cálculo del envío, la cola de pedidos con su
+interruptor de emergencia, el agente que escribe el pedido en el POS e imprime las
+comandas, la pantalla para que el dueño revise y cambie el menú, mitad y mitad,
+bebidas / postres / adicionales, y las fotos (unas 145 ya están en el POS).
+
+**Cargar el menú en la base real:** `npm run db:push` (crea las tablas) y después
+`npm run db:menu-app` (carga la propuesta). Para verlo en pruebas con el menú real:
+`npm run demo:menu` y `npm run dev:pruebas`, y abrir `/pedir`.
