@@ -7,6 +7,9 @@ import type { Metadata, Viewport } from 'next';
 export const metadata: Metadata = {
   title: 'Pizzería La Estación · Pedí a domicilio',
   description: 'Pizza, pollo, hamburguesas y más, a tu casa.',
+  // Instalada en la pantalla de inicio se llama como la pizzeria y abre el menu, no la caja.
+  manifest: '/pedir/manifiesto',
+  appleWebApp: { capable: true, title: 'La Estación', statusBarStyle: 'default' },
 };
 
 export const viewport: Viewport = {
