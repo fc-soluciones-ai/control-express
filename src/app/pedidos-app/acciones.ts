@@ -7,6 +7,7 @@
  * pedidos es el interruptor de emergencia: queda en la bitacora con quien lo hizo.
  */
 
+import { leerCoordenadas } from '@/lib/pedido/envio';
 import { exigirPermiso } from '@/server/permisos';
 import { exigirCajero } from '@/server/services/sesion';
 import {
@@ -14,14 +15,17 @@ import {
   AJUSTE_SINPE_NUMERO,
   cambiarEstadoDePedidoApp,
   configDeEnvio,
+  configDeLocal,
   datosSinpe,
   fijarConfigDeEnvio,
+  fijarConfigDeLocal,
   fijarPedidosAbiertos,
   guardarAjuste,
   pedidosAbiertos,
   pedidosParaElLocal,
   verificarPagoDePedidoApp,
   type ConfigDeEnvio,
+  type ConfigDeLocal,
   type DatosSinpe,
   type EstadoDePedidoApp,
   type PedidoParaElLocal,
@@ -31,19 +35,44 @@ export interface EstadoDeLaPantalla {
   abierto: boolean;
   sinpe: DatosSinpe | null;
   envio: ConfigDeEnvio;
+  local: ConfigDeLocal;
   pedidos: PedidoParaElLocal[];
 }
 
 export async function accionLeerPedidosApp(): Promise<EstadoDeLaPantalla> {
   const usuario = await exigirCajero();
   exigirPermiso(usuario, 'OPERACION');
-  const [abierto, sinpe, envio, pedidos] = await Promise.all([
+  const [abierto, sinpe, envio, local, pedidos] = await Promise.all([
     pedidosAbiertos(),
     datosSinpe(),
     configDeEnvio(),
+    configDeLocal(),
     pedidosParaElLocal(),
   ]);
-  return { abierto, sinpe, envio, pedidos };
+  return { abierto, sinpe, envio, local, pedidos };
+}
+
+/**
+ * Pone donde esta la pizzeria. Acepta las coordenadas sueltas ("10.0163, -84.2140") o un
+ * enlace largo de Google Maps; si el texto no trae un punto dentro de Costa Rica, lo dice.
+ */
+export async function accionGuardarLocal(texto: string, radioKm: number): Promise<void> {
+  const usuario = await exigirCajero();
+  exigirPermiso(usuario, 'OPERACION');
+  const punto = leerCoordenadas(texto);
+  if (!punto) {
+    throw new Error(
+      'No encontré una ubicación en lo que pegaste. Pegá las coordenadas ("10.0163, -84.2140") o un enlace largo de Google Maps.',
+    );
+  }
+  await fijarConfigDeLocal(punto, radioKm, usuario.id);
+}
+
+/** Lo mismo, con un punto que el navegador ya tiene (el GPS del telefono). */
+export async function accionGuardarLocalDesdeGps(lat: number, lng: number, radioKm: number): Promise<void> {
+  const usuario = await exigirCajero();
+  exigirPermiso(usuario, 'OPERACION');
+  await fijarConfigDeLocal({ lat, lng }, radioKm, usuario.id);
 }
 
 export async function accionGuardarEnvio(modo: 'FIJO' | 'DISTANCIA', fijoEnColones: number): Promise<void> {

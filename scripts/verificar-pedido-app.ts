@@ -18,7 +18,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { PROPUESTA_INICIAL } from '@/lib/menu/propuesta-inicial';
 import { CARGO_PLATAFORMA, ENVIO_FIJO_DE_PRUEBA } from '@/lib/pedido/cargos';
-import { distanciaKm, estaEnCostaRica, LOCAL, tramoPara } from '@/lib/pedido/envio';
+import { distanciaKm, estaEnCostaRica, leerCoordenadas, LOCAL, MAXIMO_KM, tramoPara } from '@/lib/pedido/envio';
 import { validarPedido } from '@/lib/pedido/validar';
 import { aplicarPropuestaInicial, menuDeLaApp } from '@/server/services/menu-app';
 import {
@@ -26,10 +26,12 @@ import {
   AJUSTE_SINPE_NUMERO,
   cambiarEstadoDePedidoApp,
   configDeEnvio,
+  configDeLocal,
   cotizar,
   cotizarZona,
   crearPedidoApp,
   fijarConfigDeEnvio,
+  fijarConfigDeLocal,
   fijarPedidosAbiertos,
   guardarAjuste,
   pedidoParaElCliente,
@@ -128,6 +130,20 @@ async function main(): Promise<void> {
   comprobar('San Jose esta en Costa Rica', estaEnCostaRica({ lat: 9.93, lng: -84.08 }), true);
   comprobar('Miami no', estaEnCostaRica({ lat: 25.76, lng: -80.19 }), false);
   comprobar('NaN no', estaEnCostaRica({ lat: Number.NaN, lng: -84 }), false);
+
+  console.log('\n--- Leer coordenadas que alguien pega (sin base) ---');
+  const casa = { lat: 10.0163, lng: -84.214 };
+  comprobar('coordenadas sueltas', leerCoordenadas('10.0163, -84.2140'), casa);
+  comprobar('sin espacio', leerCoordenadas('10.0163,-84.2140'), casa);
+  comprobar('con espacios de mas', leerCoordenadas('  10.0163 ,   -84.2140  '), casa);
+  comprobar('un enlace largo con @', leerCoordenadas('https://www.google.com/maps/place/Alajuela/@10.0163,-84.2140,17z/data=!3m1'), casa);
+  comprobar('un enlace con ?q=', leerCoordenadas('https://www.google.com/maps?q=10.0163,-84.2140'), casa);
+  comprobar('un enlace con !3d!4d', leerCoordenadas('https://www.google.com/maps/place/X/data=!4m6!3m5!1s0x0!8m2!3d10.0163!4d-84.2140'), casa);
+  comprobar('un enlace corto no sirve (esconde la posicion)', leerCoordenadas('https://maps.app.goo.gl/AbCdEf123'), null);
+  comprobar('un punto de Miami no sirve', leerCoordenadas('25.7617, -80.1918'), null);
+  comprobar('texto cualquiera no sirve', leerCoordenadas('hola mundo'), null);
+  comprobar('vacio no sirve', leerCoordenadas('   '), null);
+  comprobar('latitud y longitud sin decimales no se aceptan como punto', leerCoordenadas('10, -84'), null);
 
   console.log('\n--- Validar lo que manda el telefono (sin base) ---');
   const base = {
@@ -247,6 +263,34 @@ async function main(): Promise<void> {
   await prisma.productoMenu.update({ where: { id: '08003' }, data: { presente: false } });
   comprobar('si falta el producto del envio, se dice fuera de zona y no se cobra mal', (await cotizarZona(aKm(2))).dentro, false);
   await prisma.productoMenu.update({ where: { id: '08003' }, data: { presente: true } });
+
+  console.log('\n--- Donde esta el local y hasta donde se entrega ---');
+  const local0 = await configDeLocal();
+  comprobar('sin ajuste, no esta configurada', local0.configurada, false);
+  comprobar('y usa el punto provisional', [local0.lat, local0.lng], [LOCAL.lat, LOCAL.lng]);
+  comprobar('con el radio por defecto', local0.radioKm, MAXIMO_KM);
+  // Un local nuevo, a unos 30 km del provisional: lo que antes era "fuera de zona" ahora entra.
+  const nuevoLocal = { lat: LOCAL.lat + 0.27, lng: LOCAL.lng };
+  await fijarConfigDeLocal(nuevoLocal, 12, cajero.id);
+  const local1 = await configDeLocal();
+  comprobar('queda configurada', local1.configurada, true);
+  comprobar('con la ubicacion nueva', [local1.lat, local1.lng], [nuevoLocal.lat, nuevoLocal.lng]);
+  comprobar('un punto a 2 km del local nuevo esta dentro', (await cotizarZona({ lat: nuevoLocal.lat + 2 / 111.19, lng: nuevoLocal.lng })).dentro, true);
+  comprobar('lo que quedaba a 2 km del punto viejo ahora esta fuera', (await cotizarZona(aKm(2))).dentro, false);
+  await fijarConfigDeLocal(nuevoLocal, 1, cajero.id);
+  comprobar('con radio de 1 km, 2 km queda fuera', (await cotizarZona({ lat: nuevoLocal.lat + 2 / 111.19, lng: nuevoLocal.lng })).dentro, false);
+  comprobar('y 0.5 km dentro', (await cotizarZona({ lat: nuevoLocal.lat + 0.5 / 111.19, lng: nuevoLocal.lng })).dentro, true);
+  comprobar('un radio de cero se rechaza', (await falla(() => fijarConfigDeLocal(nuevoLocal, 0, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un radio absurdo se rechaza', (await falla(() => fijarConfigDeLocal(nuevoLocal, 500, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un local fuera de Costa Rica se rechaza', (await falla(() => fijarConfigDeLocal({ lat: 25.7, lng: -80.2 }, 10, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('un radio mal escrito en la base vuelve al de por defecto', await (async () => {
+    await prisma.ajusteApp.update({ where: { clave: 'radio_km' }, data: { valor: 'abc' } });
+    return (await configDeLocal()).radioKm;
+  })(), MAXIMO_KM);
+  comprobar('los cambios del local quedan en la bitacora', await prisma.eventoAuditoria.count({ where: { entidadId: 'local_lat' } }), 2);
+  // Se deja como estaba para el resto de la prueba.
+  await fijarConfigDeLocal(LOCAL, 12, cajero.id);
+  comprobar('de vuelta al punto de siempre', (await cotizarZona(aKm(2))).dentro, true);
 
   console.log('\n--- Un pedido bueno (envio por distancia) ---');
   const cot = await cotizar(entrada().lineas, aKm(2));

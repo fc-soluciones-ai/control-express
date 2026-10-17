@@ -91,6 +91,33 @@ export function estaEnCostaRica(p: Coordenada): boolean {
   );
 }
 
+/**
+ * Saca una coordenada de lo que alguien pega: "10.0163, -84.2140" (lo que da Google
+ * Maps al tocar y mantener un punto) o un enlace LARGO de Google Maps con la posicion
+ * dentro (".../@10.0163,-84.2140,17z", "?q=10.0163,-84.2140", "!3d10.0163!4d-84.2140").
+ *
+ * Un enlace corto (maps.app.goo.gl) no trae la posicion: esconde una redireccion, y
+ * seguirla desde el servidor para leer un texto que pego cualquiera no es buena idea.
+ * Devuelve null si no encuentra un punto dentro de Costa Rica.
+ */
+export function leerCoordenadas(texto: string): Coordenada | null {
+  const t = texto.trim();
+  if (t === '') return null;
+  const patrones = [
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/, // dentro de un enlace de lugar
+    /@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/, // /@lat,lng,17z
+    /[?&](?:q|ll|query|destination)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/, // ?q=lat,lng
+    /^\s*(-?\d{1,2}\.\d+)\s*[,;\s]\s*(-?\d{1,3}\.\d+)\s*$/, // "lat, lng" suelto
+  ];
+  for (const re of patrones) {
+    const m = re.exec(t);
+    if (!m) continue;
+    const punto = { lat: Number(m[1]), lng: Number(m[2]) };
+    if (estaEnCostaRica(punto)) return punto;
+  }
+  return null;
+}
+
 /** Enlace para abrir el punto en Google Maps. */
 export function enlaceDeMapa(p: Coordenada): string {
   return `https://www.google.com/maps?q=${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;

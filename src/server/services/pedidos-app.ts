@@ -30,7 +30,16 @@ import {
   comoModoDeEnvio,
   type ModoDeEnvio,
 } from '@/lib/pedido/cargos';
-import { TIEMPO_ESTIMADO, TRAMOS_DE_ENVIO, tramoPara, type Coordenada } from '@/lib/pedido/envio';
+import {
+  LOCAL,
+  MAXIMO_KM,
+  TIEMPO_ESTIMADO,
+  TRAMOS_DE_ENVIO,
+  distanciaKm,
+  estaEnCostaRica,
+  tramoPara,
+  type Coordenada,
+} from '@/lib/pedido/envio';
 import { validarPedido, type LineaEntrante, type PedidoEntrante } from '@/lib/pedido/validar';
 import { ErrorNegocio } from '@/server/errores';
 import { registrarEvento } from '@/server/services/auditoria';
@@ -44,6 +53,9 @@ export const AJUSTE_SINPE_NUMERO = 'sinpe_numero';
 export const AJUSTE_SINPE_NOMBRE = 'sinpe_nombre';
 export const AJUSTE_ENVIO_MODO = 'envio_modo';
 export const AJUSTE_ENVIO_FIJO = 'envio_fijo_colones';
+export const AJUSTE_LOCAL_LAT = 'local_lat';
+export const AJUSTE_LOCAL_LNG = 'local_lng';
+export const AJUSTE_RADIO_KM = 'radio_km';
 
 export async function leerAjuste(clave: string): Promise<string | null> {
   const fila = await prisma.ajusteApp.findUnique({ where: { clave } });
@@ -147,6 +159,66 @@ export async function fijarConfigDeEnvio(
       entidadId: AJUSTE_ENVIO_MODO,
       antes: { modo: antes.modo, fijo: antes.fijo / 100 },
       despues: { modo, fijo: fijoEnColones },
+    });
+  });
+}
+
+export interface ConfigDeLocal {
+  lat: number;
+  lng: number;
+  /** Hasta cuantos kilometros en linea recta se entrega. */
+  radioKm: number;
+  /** false mientras sea la ubicacion provisional del codigo y nadie la haya puesto. */
+  configurada: boolean;
+}
+
+/** Donde esta la pizzeria y hasta donde se entrega. Sin ajuste: el punto provisional. */
+export async function configDeLocal(): Promise<ConfigDeLocal> {
+  const [lat, lng, radio] = await Promise.all([
+    leerAjuste(AJUSTE_LOCAL_LAT),
+    leerAjuste(AJUSTE_LOCAL_LNG),
+    leerAjuste(AJUSTE_RADIO_KM),
+  ]);
+  const la = lat === null ? Number.NaN : Number(lat);
+  const ln = lng === null ? Number.NaN : Number(lng);
+  const r = radio === null ? Number.NaN : Number(radio);
+  const configurada = estaEnCostaRica({ lat: la, lng: ln });
+  return {
+    lat: configurada ? la : LOCAL.lat,
+    lng: configurada ? ln : LOCAL.lng,
+    radioKm: Number.isFinite(r) && r >= 1 && r <= 100 ? r : MAXIMO_KM,
+    configurada,
+  };
+}
+
+/** Cambia donde esta el local y el radio de entrega. Queda en la bitacora. */
+export async function fijarConfigDeLocal(
+  punto: Coordenada,
+  radioKm: number,
+  cajeroId: string,
+): Promise<void> {
+  if (!estaEnCostaRica(punto)) {
+    throw new ErrorNegocio('DATOS_INVALIDOS', 'La ubicacion del local tiene que estar en Costa Rica.');
+  }
+  if (!Number.isFinite(radioKm) || radioKm < 1 || radioKm > 100) {
+    throw new ErrorNegocio('DATOS_INVALIDOS', 'El radio de entrega tiene que estar entre 1 y 100 kilometros.');
+  }
+  const antes = await configDeLocal();
+  await prisma.$transaction(async (tx) => {
+    for (const [clave, valor] of [
+      [AJUSTE_LOCAL_LAT, String(punto.lat)],
+      [AJUSTE_LOCAL_LNG, String(punto.lng)],
+      [AJUSTE_RADIO_KM, String(radioKm)],
+    ] as const) {
+      await tx.ajusteApp.upsert({ where: { clave }, create: { clave, valor }, update: { valor } });
+    }
+    await registrarEvento(tx, {
+      tipo: 'PEDIDO_APP_ESTADO',
+      cajeroId,
+      entidadTipo: 'AjusteApp',
+      entidadId: AJUSTE_LOCAL_LAT,
+      antes: { lat: antes.lat, lng: antes.lng, radioKm: antes.radioKm },
+      despues: { lat: punto.lat, lng: punto.lng, radioKm },
     });
   });
 }
@@ -286,38 +358,58 @@ export async function cotizar(
   if (!ubicacion) {
     throw new ErrorNegocio('DATOS_INVALIDOS', 'Necesitamos tu ubicación para calcular el envío.');
   }
-  const tramo = tramoPara(ubicacion);
-  if (!tramo.dentro) {
+  const zona = await calcularZona(ubicacion);
+  if (!zona.dentro || zona.envio === null) {
     throw new ErrorNegocio(
       'FUERA_DE_ZONA',
-      `Por ahora no llegamos hasta tu ubicación (${tramo.km.toFixed(1)} km). Llamanos y vemos.`,
+      `Por ahora no llegamos hasta tu ubicación (${zona.km.toFixed(1)} km). Llamanos y vemos.`,
     );
-  }
-
-  // Fijo (pruebas): un monto parejo. Por distancia: el producto EXPRESS del tramo.
-  const config = await configDeEnvio();
-  let envio: number;
-  let envioProductoId: string | null = null;
-  if (config.modo === 'FIJO') {
-    envio = config.fijo;
-  } else {
-    const productoEnvio = await prisma.productoMenu.findUnique({ where: { id: tramo.tramo.productoMenuId } });
-    if (!productoEnvio || !productoEnvio.presente) {
-      throw new ErrorNegocio('FUERA_DE_ZONA', 'No pudimos calcular el envío. Llamanos para hacer tu pedido.');
-    }
-    envio = productoEnvio.precio;
-    envioProductoId = productoEnvio.id;
   }
 
   return {
     lineas: calculadas,
     subtotal,
-    envio,
-    envioProductoId,
+    envio: zona.envio,
+    envioProductoId: zona.envioProductoId,
     cargoApp: CARGO_PLATAFORMA,
-    total: subtotal + envio + CARGO_PLATAFORMA,
-    distanciaKm: Math.round(tramo.km * 10) / 10,
+    total: subtotal + zona.envio + CARGO_PLATAFORMA,
+    distanciaKm: zona.km,
   };
+}
+
+interface ZonaCalculada {
+  dentro: boolean;
+  /** Kilometros en linea recta desde el local, con un decimal. */
+  km: number;
+  /** Centimos. null si queda fuera. */
+  envio: number | null;
+  /** El producto EXPRESS que se cobra; null si el envio es fijo o si queda fuera. */
+  envioProductoId: string | null;
+}
+
+/**
+ * Donde cae un punto respecto al local: si llegamos y cuanto cuesta el envio.
+ *
+ * La ubicacion del local y el radio de entrega salen de los ajustes (los cambia el dueno
+ * en /pedidos-app). Dentro del radio, el envio fijo cobra lo mismo a todos; el envio por
+ * distancia cobra el producto EXPRESS del tramo y, si el punto cae mas alla del ultimo
+ * tramo, tampoco se entrega.
+ */
+async function calcularZona(ubicacion: Coordenada): Promise<ZonaCalculada> {
+  const [local, config] = await Promise.all([configDeLocal(), configDeEnvio()]);
+  const centro = { lat: local.lat, lng: local.lng };
+  const crudo = distanciaKm(centro, ubicacion);
+  const km = Math.round(crudo * 10) / 10;
+  const fuera: ZonaCalculada = { dentro: false, km, envio: null, envioProductoId: null };
+  if (crudo > local.radioKm) return fuera;
+
+  if (config.modo === 'FIJO') return { dentro: true, km, envio: config.fijo, envioProductoId: null };
+
+  const tramo = tramoPara(ubicacion, centro);
+  if (!tramo.dentro) return fuera;
+  const producto = await prisma.productoMenu.findUnique({ where: { id: tramo.tramo.productoMenuId } });
+  if (!producto || !producto.presente) return fuera;
+  return { dentro: true, km, envio: producto.precio, envioProductoId: producto.id };
 }
 
 // ---------------------------------------------------------------------------
@@ -344,20 +436,8 @@ export interface Zona {
  * Fuera de zona no es un error: es una respuesta, y la pantalla la explica.
  */
 export async function cotizarZona(ubicacion: Coordenada): Promise<Zona> {
-  const tramo = tramoPara(ubicacion);
-  const km = Math.round(tramo.km * 10) / 10;
-  if (!tramo.dentro) {
-    return { dentro: false, km, envio: null, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
-  }
-  const config = await configDeEnvio();
-  if (config.modo === 'FIJO') {
-    return { dentro: true, km, envio: config.fijo, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
-  }
-  const producto = await prisma.productoMenu.findUnique({ where: { id: tramo.tramo.productoMenuId } });
-  if (!producto || !producto.presente) {
-    return { dentro: false, km, envio: null, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
-  }
-  return { dentro: true, km, envio: producto.precio, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
+  const z = await calcularZona(ubicacion);
+  return { dentro: z.dentro, km: z.km, envio: z.envio, cargoApp: CARGO_PLATAFORMA, tiempo: TIEMPO_ESTIMADO };
 }
 
 /** Lo que ve el cliente antes de confirmar: totales y envio, sin guardar nada. */

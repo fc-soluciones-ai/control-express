@@ -45,7 +45,9 @@ export function MapaConPin({
       const L = (await import('leaflet')).default;
       if (cancelado || !contenedor.current || mapa.current) return;
 
-      const m = L.map(contenedor.current, { zoomControl: true, attributionControl: true }).setView([lat, lng], 17);
+      // Solo la atribucion que la licencia de OpenStreetMap exige; sin el rotulo de Leaflet.
+      const m = L.map(contenedor.current, { zoomControl: true, attributionControl: false }).setView([lat, lng], 17);
+      L.control.attribution({ prefix: false }).addTo(m);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '© OpenStreetMap',

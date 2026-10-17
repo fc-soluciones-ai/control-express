@@ -16,6 +16,8 @@ import {
   accionAbrirOCerrar,
   accionCambiarEstado,
   accionGuardarEnvio,
+  accionGuardarLocal,
+  accionGuardarLocalDesdeGps,
   accionGuardarSinpe,
   accionLeerPedidosApp,
   accionVerificarPago,
@@ -64,6 +66,9 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
   const [sinpeNombre, setSinpeNombre] = useState(inicial.sinpe?.nombre ?? '');
   const [modoEnvio, setModoEnvio] = useState<'FIJO' | 'DISTANCIA'>(inicial.envio.modo);
   const [envioFijo, setEnvioFijo] = useState(String(inicial.envio.fijo / 100));
+  const [textoLocal, setTextoLocal] = useState('');
+  const [radio, setRadio] = useState(String(inicial.local.radioKm));
+  const [buscandoGps, setBuscandoGps] = useState(false);
 
   const leer = useCallback(async () => {
     try {
@@ -151,6 +156,94 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
           </strong>
           .
         </p>
+      </section>
+
+      {/* --- Donde esta el local y hasta donde se entrega --------------------------------- */}
+      <section className="rounded-2xl bg-panel p-5">
+        <h2 className="text-lg font-bold">Ubicación de la pizzería y zona de entrega</h2>
+        <p className="mb-1 text-sm text-slate-400">
+          Desde este punto se miden los kilómetros hasta el cliente.{' '}
+          {datos.local.configurada ? (
+            <>
+              Ahora está en{' '}
+              <a
+                className="font-bold text-sky-400 underline"
+                href={enlaceDeMapa({ lat: datos.local.lat, lng: datos.local.lng })}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {datos.local.lat.toFixed(5)}, {datos.local.lng.toFixed(5)}
+              </a>
+              , con entrega hasta {datos.local.radioKm} km.
+            </>
+          ) : (
+            <strong className="text-aviso">
+              Todavía no está puesta: se usa un punto provisional del centro de Alajuela y por eso a muchos clientes
+              les sale &quot;fuera de la zona&quot;. Poné la ubicación real.
+            </strong>
+          )}
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block min-w-[16rem] flex-1 text-sm text-slate-400">
+            Coordenadas o enlace largo de Google Maps
+            <input
+              className="mt-1 block min-h-tactil w-full rounded-xl bg-fondo px-4 text-lg text-white ring-1 ring-borde"
+              value={textoLocal}
+              onChange={(e) => setTextoLocal(e.target.value)}
+              placeholder="10.0163, -84.2140"
+            />
+          </label>
+          <label className="block text-sm text-slate-400">
+            Entrega hasta (km)
+            <input
+              className="mt-1 block min-h-tactil w-32 rounded-xl bg-fondo px-4 text-lg text-white ring-1 ring-borde"
+              value={radio}
+              inputMode="decimal"
+              maxLength={5}
+              onChange={(e) => setRadio(e.target.value.replace(/[^\d.]/g, ''))}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => hacer(() => accionGuardarLocal(textoLocal, Number(radio)))}
+            className="min-h-tactil rounded-xl bg-panelClaro px-6 text-lg font-bold"
+          >
+            Guardar
+          </button>
+        </div>
+        <div className="mt-3">
+          <button
+            type="button"
+            disabled={ocupado || buscandoGps}
+            onClick={() => {
+              if (!('geolocation' in navigator)) {
+                setError('Este equipo no puede darme su ubicación.');
+                return;
+              }
+              setBuscandoGps(true);
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  setBuscandoGps(false);
+                  hacer(() => accionGuardarLocalDesdeGps(pos.coords.latitude, pos.coords.longitude, Number(radio)));
+                },
+                () => {
+                  setBuscandoGps(false);
+                  setError('No pude leer la ubicación de este equipo. Pegá las coordenadas a mano.');
+                },
+                { enableHighAccuracy: true, timeout: 20_000 },
+              );
+            }}
+            className="min-h-tactil rounded-xl bg-fondo px-5 text-lg font-bold ring-1 ring-borde"
+          >
+            {buscandoGps ? 'Buscando…' : '📍 Usar la ubicación de este equipo como la del local'}
+          </button>
+          <p className="mt-2 text-sm text-slate-500">
+            Si abrís esta pantalla desde un celular parado en la pizzería, ese botón es lo más rápido. En una
+            computadora la ubicación es aproximada: mejor pegá las coordenadas (en Google Maps, mantené tocado el
+            punto del local y copiá los números de arriba).
+          </p>
+        </div>
       </section>
 
       {/* --- El envio ----------------------------------------------------------------------- */}
