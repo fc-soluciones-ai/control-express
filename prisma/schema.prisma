@@ -139,6 +139,7 @@ model Chofer {
   evidencias   Evidencia[]
   lecturas     LecturaFoto[]
   pedidos      Pedido[]
+  pedidosApp   PedidoApp[]
   ubicaciones  UbicacionCliente[]
 
   @@index([nombreNormalizado])
@@ -1163,12 +1164,17 @@ model PedidoApp {
   /// El folio que le dio el POS, cuando el agente lo escribio ahi.
   folioPos String? @map("folio_pos")
 
+  /// Quien lleva el pedido (y por el, en cual moto anda). Lo elige alguien del local.
+  choferId String? @map("chofer_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   lineas LineaPedidoApp[]
+  chofer Chofer?          @relation(fields: [choferId], references: [id], onDelete: SetNull)
 
   @@index([estado, createdAt])
+  @@index([choferId, estado])
   @@index([telefono, createdAt])
   @@map("pedidos_app")
 }

@@ -23,7 +23,10 @@ import {
   guardarAjuste,
   pedidosAbiertos,
   pedidosParaElLocal,
+  repartidoresDeLaApp,
   verificarPagoDePedidoApp,
+  asignarRepartidorAPedidoApp,
+  type RepartidorDeLaApp,
   type ConfigDeEnvio,
   type ConfigDeLocal,
   type DatosSinpe,
@@ -37,19 +40,21 @@ export interface EstadoDeLaPantalla {
   envio: ConfigDeEnvio;
   local: ConfigDeLocal;
   pedidos: PedidoParaElLocal[];
+  repartidores: RepartidorDeLaApp[];
 }
 
 export async function accionLeerPedidosApp(): Promise<EstadoDeLaPantalla> {
   const usuario = await exigirCajero();
   exigirPermiso(usuario, 'OPERACION');
-  const [abierto, sinpe, envio, local, pedidos] = await Promise.all([
+  const [abierto, sinpe, envio, local, pedidos, repartidores] = await Promise.all([
     pedidosAbiertos(),
     datosSinpe(),
     configDeEnvio(),
     configDeLocal(),
     pedidosParaElLocal(),
+    repartidoresDeLaApp(),
   ]);
-  return { abierto, sinpe, envio, local, pedidos };
+  return { abierto, sinpe, envio, local, pedidos, repartidores };
 }
 
 /**
@@ -91,6 +96,12 @@ export async function accionCambiarEstado(id: string, estado: EstadoDePedidoApp)
   const usuario = await exigirCajero();
   exigirPermiso(usuario, 'OPERACION');
   await cambiarEstadoDePedidoApp(id, estado, usuario.id);
+}
+
+export async function accionAsignarRepartidor(id: string, choferId: string | null): Promise<void> {
+  const usuario = await exigirCajero();
+  exigirPermiso(usuario, 'OPERACION');
+  await asignarRepartidorAPedidoApp(id, choferId, usuario.id);
 }
 
 export async function accionVerificarPago(id: string): Promise<void> {

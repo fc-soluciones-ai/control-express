@@ -37,6 +37,8 @@ import {
   pedidoParaElCliente,
   pedidosAbiertos,
   pedidosParaElLocal,
+  repartidoresDeLaApp,
+  asignarRepartidorAPedidoApp,
   transicionPermitida,
 } from '@/server/services/pedidos-app';
 
@@ -377,6 +379,40 @@ async function main(): Promise<void> {
   comprobar('un pedido inexistente se rechaza', (await falla(() => cambiarEstadoDePedidoApp('noexiste', 'ACEPTADO', cajero.id)))?.codigo, 'PEDIDO_NO_ENCONTRADO');
   comprobar('cada cambio queda en la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: 'PEDIDO_APP_ESTADO', entidadId: ultimo.id } }), 2);
 
+  console.log('\n--- Asignar a una moto ---');
+  const chofer = await prisma.chofer.create({
+    data: { idMeseroSoftRestaurant: 'T-APP-1', nombre: 'Repartidor Prueba', nombreNormalizado: 'REPARTIDOR PRUEBA' },
+  });
+  const inactivo = await prisma.chofer.create({
+    data: { idMeseroSoftRestaurant: 'T-APP-2', nombre: 'Inactivo Prueba', nombreNormalizado: 'INACTIVO PRUEBA', estado: 'INACTIVO' },
+  });
+  await prisma.motocicleta.create({ data: { placa: 'TAPP001', marca: 'Honda', modelo: 'XR', anio: 2024, kilometrajeActual: 100 } });
+  await prisma.asignacionMoto.create({
+    data: { placa: 'TAPP001', choferId: chofer.id, candadoChoferActivo: chofer.id, candadoMotoActiva: 'TAPP001' },
+  });
+  const lista = await repartidoresDeLaApp();
+  comprobar('la lista trae al chofer activo con su moto', lista.find((r) => r.id === chofer.id)?.placa, 'TAPP001');
+  comprobar('y no trae al inactivo', lista.some((r) => r.id === inactivo.id), false);
+  comprobar('un pedido nace sin repartidor', (await pedidosParaElLocal()).find((x) => x.id === ultimo.id)?.repartidor, null);
+  await asignarRepartidorAPedidoApp(ultimo.id, chofer.id, cajero.id);
+  const asignado = (await pedidosParaElLocal()).find((x) => x.id === ultimo.id)?.repartidor;
+  comprobar('se asigna al repartidor', asignado?.nombre, 'Repartidor Prueba');
+  comprobar('y se ve su moto', asignado?.placa, 'TAPP001');
+  comprobar('asignar no cambia el estado', (await prisma.pedidoApp.findUnique({ where: { id: ultimo.id } }))?.estado, 'EN_COCINA');
+  comprobar('queda en la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: 'PEDIDO_APP_ESTADO', entidadId: ultimo.id } }), 3);
+  await asignarRepartidorAPedidoApp(ultimo.id, chofer.id, cajero.id);
+  comprobar('asignar al mismo no repite la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: 'PEDIDO_APP_ESTADO', entidadId: ultimo.id } }), 3);
+  comprobar('un inactivo no puede llevar pedidos', (await falla(() => asignarRepartidorAPedidoApp(ultimo.id, inactivo.id, cajero.id)))?.codigo, 'CHOFER_INACTIVO');
+  comprobar('un chofer que no existe se rechaza', (await falla(() => asignarRepartidorAPedidoApp(ultimo.id, 'noexiste', cajero.id)))?.codigo, 'CHOFER_NO_ENCONTRADO');
+  comprobar('un pedido que no existe se rechaza', (await falla(() => asignarRepartidorAPedidoApp('noexiste', chofer.id, cajero.id)))?.codigo, 'PEDIDO_NO_ENCONTRADO');
+  await asignarRepartidorAPedidoApp(ultimo.id, null, cajero.id);
+  comprobar('se le puede quitar el pedido', (await pedidosParaElLocal()).find((x) => x.id === ultimo.id)?.repartidor, null);
+  await asignarRepartidorAPedidoApp(ultimo.id, chofer.id, cajero.id);
+  await cambiarEstadoDePedidoApp(ultimo.id, 'EN_CAMINO', cajero.id);
+  await cambiarEstadoDePedidoApp(ultimo.id, 'ENTREGADO', cajero.id);
+  comprobar('un pedido entregado no se reasigna', (await falla(() => asignarRepartidorAPedidoApp(ultimo.id, null, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
+  comprobar('el repartidor sigue anotado en el pedido entregado', (await pedidosParaElLocal()).find((x) => x.id === ultimo.id)?.repartidor?.id, chofer.id);
+
   console.log('\n--- Lo que ve el local ---');
   const local = await pedidosParaElLocal();
   comprobar('lista los pedidos', local.length, 4);
@@ -386,6 +422,9 @@ async function main(): Promise<void> {
   await prisma.eventoAuditoria.deleteMany({ where: { cajeroId: cajero.id } });
   await prisma.cajero.delete({ where: { id: cajero.id } });
   await limpiar();
+  await prisma.asignacionMoto.deleteMany({ where: { placa: 'TAPP001' } });
+  await prisma.motocicleta.delete({ where: { placa: 'TAPP001' } });
+  await prisma.chofer.deleteMany({ where: { id: { in: [chofer.id, inactivo.id] } } });
   console.log(fallos === 0 ? '\nTodo bien' : `\n${fallos} fallas`);
   await prisma.$disconnect();
   process.exit(fallos === 0 ? 0 : 1);

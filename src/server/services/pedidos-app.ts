@@ -657,7 +657,15 @@ export interface PedidoParaElLocal {
   total: number;
   nota: string | null;
   creadoEn: string;
+  repartidor: RepartidorDeLaApp | null;
   lineas: Array<{ nombre: string; detalle: string; cantidad: number; extras: string[]; notas: string[] }>;
+}
+
+/** Quien puede llevar un pedido: un chofer activo y la moto que anda hoy (si tiene). */
+export interface RepartidorDeLaApp {
+  id: string;
+  nombre: string;
+  placa: string | null;
 }
 
 /** Los pedidos de la app de las ultimas horas, los mas nuevos primero. */
@@ -667,7 +675,10 @@ export async function pedidosParaElLocal(horas = 24): Promise<PedidoParaElLocal[
     where: { createdAt: { gte: desde } },
     orderBy: { createdAt: 'desc' },
     take: 100,
-    include: { lineas: true },
+    include: {
+      lineas: true,
+      chofer: { include: { asignaciones: { where: { fechaFin: null }, select: { placa: true } } } },
+    },
   });
   return filas.map((p) => ({
     id: p.id,
@@ -690,6 +701,9 @@ export async function pedidosParaElLocal(horas = 24): Promise<PedidoParaElLocal[
     total: p.total,
     nota: p.nota,
     creadoEn: p.createdAt.toISOString(),
+    repartidor: p.chofer
+      ? { id: p.chofer.id, nombre: p.chofer.nombre, placa: p.chofer.asignaciones[0]?.placa ?? null }
+      : null,
     lineas: p.lineas.map((l) => ({
       nombre: l.nombre,
       detalle: l.detalle,
@@ -700,6 +714,49 @@ export async function pedidosParaElLocal(horas = 24): Promise<PedidoParaElLocal[
       notas: l.notas,
     })),
   }));
+}
+
+/** Los choferes activos con la moto que tienen asignada hoy, para elegir a quien le toca un pedido. */
+export async function repartidoresDeLaApp(): Promise<RepartidorDeLaApp[]> {
+  const choferes = await prisma.chofer.findMany({
+    where: { estado: 'ACTIVO' },
+    orderBy: { nombre: 'asc' },
+    include: { asignaciones: { where: { fechaFin: null }, select: { placa: true } } },
+  });
+  return choferes.map((c) => ({ id: c.id, nombre: c.nombre, placa: c.asignaciones[0]?.placa ?? null }));
+}
+
+/**
+ * Le da el pedido a un repartidor (o se lo quita con null). No cambia el estado: se puede
+ * asignar antes de que salga de cocina. Un pedido ya entregado o cancelado no se reasigna.
+ */
+export async function asignarRepartidorAPedidoApp(
+  id: string,
+  choferId: string | null,
+  cajeroId: string,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const p = await tx.pedidoApp.findUnique({ where: { id } });
+    if (!p) throw new ErrorNegocio('PEDIDO_NO_ENCONTRADO', 'No se encontró el pedido.');
+    if (p.estado === 'ENTREGADO' || p.estado === 'CANCELADO') {
+      throw new ErrorNegocio('DATOS_INVALIDOS', 'Un pedido cerrado ya no se reasigna.');
+    }
+    if (choferId !== null) {
+      const chofer = await tx.chofer.findUnique({ where: { id: choferId } });
+      if (!chofer) throw new ErrorNegocio('CHOFER_NO_ENCONTRADO', 'No se encontró el repartidor.');
+      if (chofer.estado !== 'ACTIVO') throw new ErrorNegocio('CHOFER_INACTIVO', 'Ese repartidor está inactivo.');
+    }
+    if (p.choferId === choferId) return;
+    await tx.pedidoApp.update({ where: { id }, data: { choferId } });
+    await registrarEvento(tx, {
+      tipo: 'PEDIDO_APP_ESTADO',
+      cajeroId,
+      entidadTipo: 'PedidoApp',
+      entidadId: id,
+      antes: { choferId: p.choferId },
+      despues: { choferId },
+    });
+  });
 }
 
 /** Cambia el estado de un pedido, respetando las transiciones. Queda en la bitacora. */

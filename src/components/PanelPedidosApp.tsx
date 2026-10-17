@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState, useTransition } from 'react';
 
 import {
   accionAbrirOCerrar,
+  accionAsignarRepartidor,
   accionCambiarEstado,
   accionGuardarEnvio,
   accionGuardarLocal,
@@ -26,7 +27,7 @@ import {
 import { CARGO_PLATAFORMA, NOMBRE_CARGO_PLATAFORMA } from '@/lib/pedido/cargos';
 import { enlaceDeMapa, enlaceDeWaze } from '@/lib/pedido/envio';
 import { formatearMoneda } from '@/lib/money/money';
-import type { EstadoDePedidoApp, PedidoParaElLocal } from '@/server/services/pedidos-app';
+import type { EstadoDePedidoApp, PedidoParaElLocal, RepartidorDeLaApp } from '@/server/services/pedidos-app';
 
 const CADA_CUANTO_SE_LEE = 10_000;
 
@@ -140,7 +141,7 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
         ) : (
           <ul className="space-y-4">
             {datos.pedidos.map((p) => (
-              <FilaDePedido key={p.id} p={p} ocupado={ocupado} hacer={hacer} />
+              <FilaDePedido key={p.id} p={p} repartidores={datos.repartidores} ocupado={ocupado} hacer={hacer} />
             ))}
           </ul>
         )}
@@ -332,10 +333,12 @@ export function PanelPedidosApp({ inicial }: { inicial: EstadoDeLaPantalla }) {
 
 function FilaDePedido({
   p,
+  repartidores,
   ocupado,
   hacer,
 }: {
   p: PedidoParaElLocal;
+  repartidores: RepartidorDeLaApp[];
   ocupado: boolean;
   hacer: (accion: () => Promise<void>) => void;
 }) {
@@ -400,6 +403,29 @@ function FilaDePedido({
         ))}
         {p.nota && <li className="text-sm italic text-aviso">Nota del pedido: “{p.nota}”</li>}
       </ul>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-b border-borde pb-4">
+        <label className="flex items-center gap-2 text-sm text-slate-400">
+          🏍️ Lo lleva
+          <select
+            value={p.repartidor?.id ?? ''}
+            disabled={ocupado || cerrado}
+            onChange={(e) => hacer(() => accionAsignarRepartidor(p.id, e.target.value === '' ? null : e.target.value))}
+            className="min-h-tactil rounded-xl bg-fondo px-3 text-lg font-bold text-white ring-1 ring-borde"
+          >
+            <option value="">Sin asignar</option>
+            {repartidores.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.nombre}
+                {r.placa ? ` · ${r.placa}` : ' · sin moto'}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!p.repartidor && !cerrado && p.estado === 'EN_COCINA' && (
+          <span className="text-sm text-aviso">Falta elegir quién lo lleva antes de despachar.</span>
+        )}
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {p.ubicacion ? (
