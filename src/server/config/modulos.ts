@@ -1,30 +1,18 @@
 /**
  * Los modulos de la aplicacion, en un solo lugar.
  *
- * LA APLICACION MADRE Y SUS PESTANAS
+ * ESTO ES SOLO DELIVERY
  *
- * Esto empezo siendo una sola cosa: el cierre de caja de la pizzeria. Esa
- * parte salio completa. Lo que queda son tres problemas distintos: la flota de
- * motos y los repartidores, la base de clientes con sus ubicaciones, y el
- * pedido desde que entra hasta que llega. Tratarlos como una lista plana de
- * doce botones hace que nadie encuentre nada.
+ * La aplicacion empezo como el cierre de caja y despues fue una flota de
+ * motos con mantenimiento y gastos. Nada de eso es el negocio de aqui: lo que
+ * queda es la entrega a domicilio, en cuatro partes.
  *
- * Asi que hay modulos, y cada modulo tiene sus pantallas. El de arriba se
- * elige una vez y las pestanas de abajo cambian.
- *
- * ENTREGAS ES AHORA EL MODULO IMPORTANTE
- *
- * Es el que responde la pregunta por la que existe el proyecto: cuantos
- * pedidos estan atrasados en este momento. Las motos y los clientes son el
- * sostenimiento; esto es la razon.
- *
- * POR QUE CLIENTES NO HABLA CON ENTREGAS TODAVIA
- *
- * Son dos problemas de tamanos distintos. Entregas ya lee la base del POS cada
- * treinta segundos y no se puede romper. Clientes arranca con diez mil fichas
- * sucias que hay que limpiar durante semanas. Se tocan en un solo punto, que
- * ya existe: el pedido trae la clave del cliente y, cuando esa clave calza con
- * una ficha nuestra, el tablero muestra el nombre y la direccion. Nada mas.
+ *   PEDIDOS      lo que piden los clientes desde la app (con el interruptor, el
+ *                envio, la zona y a quien le toca cada pedido), el tablero de los
+ *                pedidos que entran por el sistema de la pizzeria y el historial.
+ *   REPARTIDORES quienes llevan los pedidos y que moto trae cada uno hoy.
+ *   CLIENTES     las fichas del POS y la ubicacion exacta de cada casa.
+ *   AJUSTES      los usuarios del sistema.
  *
  * ESTE ARCHIVO ES LA UNICA LISTA
  *
@@ -43,7 +31,7 @@ export interface PantallaDeModulo {
 }
 
 export interface Modulo {
-  clave: 'ENTREGAS' | 'FLOTA' | 'CLIENTES';
+  clave: 'PEDIDOS' | 'REPARTIDORES' | 'CLIENTES' | 'AJUSTES';
   nombre: string;
   icono: string;
   /** Una linea que diga de que se trata, para la pantalla de inicio. */
@@ -59,31 +47,27 @@ export interface Modulo {
 
 export const MODULOS: readonly Modulo[] = [
   {
-    clave: 'ENTREGAS',
-    nombre: 'Entregas',
-    icono: '🛵',
+    clave: 'PEDIDOS',
+    nombre: 'Pedidos',
+    icono: '📱',
     descripcion:
-      'Los pedidos sin entregar y cuanto lleva esperando cada cliente, en vivo desde el POS.',
-    inicio: '/entregas',
-    rutas: ['/', '/entregas', '/historial', '/pedidos-app'],
+      'Lo que piden los clientes desde la app, a quien le toca cada pedido y los pedidos del POS que esperan moto.',
+    inicio: '/pedidos-app',
+    rutas: ['/', '/pedidos-app', '/entregas', '/historial'],
     pantallas: [
-      { href: '/entregas', etiqueta: '🛵 Tablero de entregas', permiso: 'OPERACION' },
       { href: '/pedidos-app', etiqueta: '📱 Pedidos de la app', permiso: 'OPERACION' },
+      { href: '/entregas', etiqueta: '🛵 Pedidos del POS', permiso: 'OPERACION' },
       { href: '/historial', etiqueta: '📜 Historial', permiso: 'OPERACION' },
     ],
   },
   {
-    clave: 'FLOTA',
-    nombre: 'Flota',
+    clave: 'REPARTIDORES',
+    nombre: 'Repartidores',
     icono: '🏍️',
-    descripcion: 'Las motos, sus repartidores, el mantenimiento y los gastos de taller.',
-    inicio: '/motos',
-    rutas: ['/motos', '/repartidores', '/configuracion'],
-    pantallas: [
-      { href: '/motos', etiqueta: '🏍️ Motos', permiso: 'FLOTA' },
-      { href: '/repartidores', etiqueta: '👥 Repartidores', permiso: 'REPARTIDORES' },
-      { href: '/configuracion', etiqueta: '⚙️ Configuracion', permiso: 'USUARIOS' },
-    ],
+    descripcion: 'Quienes llevan los pedidos y la moto que trae cada uno hoy.',
+    inicio: '/repartidores',
+    rutas: ['/repartidores'],
+    pantallas: [{ href: '/repartidores', etiqueta: '🏍️ Repartidores y motos', permiso: 'REPARTIDORES' }],
   },
   {
     clave: 'CLIENTES',
@@ -94,6 +78,15 @@ export const MODULOS: readonly Modulo[] = [
     inicio: '/clientes',
     rutas: ['/clientes'],
     pantallas: [{ href: '/clientes', etiqueta: '📍 Base y ubicaciones', permiso: 'CLIENTES' }],
+  },
+  {
+    clave: 'AJUSTES',
+    nombre: 'Ajustes',
+    icono: '⚙️',
+    descripcion: 'Los usuarios del sistema, sus roles y sus claves.',
+    inicio: '/configuracion',
+    rutas: ['/configuracion'],
+    pantallas: [{ href: '/configuracion', etiqueta: '⚙️ Usuarios', permiso: 'USUARIOS' }],
   },
 ];
 

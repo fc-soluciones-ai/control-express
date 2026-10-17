@@ -11,6 +11,7 @@ import { FiltroEnlace } from '@/components/FiltroEnlace';
 import { PanelChoferes } from '@/components/PanelChoferes';
 import { paraBuscar } from '@/lib/consulta';
 import { listarChoferesConHistoria } from '@/server/services/choferes';
+import { listarFlota } from '@/server/services/motos';
 import { tienePermiso } from '@/server/permisos';
 import { cajeroDeSesion } from '@/server/services/sesion';
 
@@ -26,7 +27,7 @@ export default async function Choferes({
   // Sin el rol, la pantalla no se abre: esconder el boton no basta.
   if (!tienePermiso(cajero.rol, 'REPARTIDORES')) redirect('/sin-permiso');
 
-  const todos = await listarChoferesConHistoria();
+  const [todos, motos] = await Promise.all([listarChoferesConHistoria(), listarFlota()]);
 
   const texto = paraBuscar(searchParams.buscar ?? '');
   const choferes = todos.filter((c) => {
@@ -54,7 +55,7 @@ export default async function Choferes({
       />
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Gestion de repartidores</h1>
+          <h1 className="text-3xl font-bold">Repartidores y motos</h1>
           <p className="text-slate-400">
             {todos.length} repartidor{todos.length === 1 ? '' : 'es'} registrado
             {todos.length === 1 ? '' : 's'}
@@ -83,7 +84,16 @@ export default async function Choferes({
         }
       />
 
-      <PanelChoferes choferes={choferes} esAdministrador={cajero.rol === 'ADMIN'} />
+      <PanelChoferes
+        choferes={choferes}
+        motos={motos.map((m) => ({
+          placa: m.placa,
+          nombre: m.marca === 'Moto' ? m.placa : `${m.placa} · ${m.marca}`,
+          choferNombre: m.choferNombre,
+          operativa: m.estado === 'OPERATIVA',
+        }))}
+        esAdministrador={cajero.rol === 'ADMIN'}
+      />
     </main>
   );
 }

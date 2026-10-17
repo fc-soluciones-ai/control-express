@@ -1,6 +1,8 @@
-# Control Express — Arquitectura
+# Delivery La Estación — Arquitectura
 
-Tablero de entregas, flota de motocicletas y base de clientes para una
+> **Desde el 17 de octubre de 2026 la aplicación es solo delivery.** Lo que aquí se dice de la flota, los gastos de taller, la lectura de fotos con IA y la evidencia ya no existe en el código: ver `REESTRUCTURA-DELIVERY.md`.
+
+Delivery: pedidos de la app, repartidores y base de clientes para una
 pizzería de Alajuela. Los pedidos los lee un agente de la base de Soft
 Restaurant (National Soft) que corre en el servidor del local.
 

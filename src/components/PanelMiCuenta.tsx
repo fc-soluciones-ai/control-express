@@ -26,17 +26,15 @@ const NOMBRE_ROL: Record<string, string> = {
 };
 
 const PUEDE: Record<string, string[]> = {
-  CAJERO: ['Turnos, abonos, cierres y arqueos'],
+  CAJERO: ['Ver y mover los pedidos, el tablero y el historial'],
   SUPERVISOR: [
-    'Turnos, abonos, cierres y arqueos',
-    'Importar el Excel de ventas',
-    'Flota, gastos y repartidores',
+    'Ver y mover los pedidos, el tablero y el historial',
+    'Repartidores, motos y clientes',
   ],
   ADMIN: [
-    'Turnos, abonos, cierres y arqueos',
-    'Importar el Excel de ventas',
-    'Flota, gastos y repartidores',
-    'Usuarios de caja, roles y PIN',
+    'Ver y mover los pedidos, el tablero y el historial',
+    'Repartidores, motos y clientes',
+    'Usuarios, roles y PIN',
   ],
 };
 

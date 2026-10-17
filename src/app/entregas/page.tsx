@@ -2,8 +2,7 @@
  * Pantalla del tablero de entregas.
  *
  * Es la pantalla principal del sistema: la que queda encendida en el monitor
- * del mostrador toda la noche. Arriba, cuantas motos pueden salir; abajo, los
- * pedidos que el cliente todavia esta esperando.
+ * del mostrador toda la noche: los pedidos que el cliente todavia esta esperando.
  *
  * Se arma en el servidor en cada visita para que el primer pintado ya traiga
  * los pedidos y los minutos reales: en un monitor de mostrador, una pantalla
@@ -13,13 +12,10 @@
 
 import { redirect } from 'next/navigation';
 
-import { BarraSuperior } from '@/components/BarraSuperior';
 import { Cabecera } from '@/components/Cabecera';
 import { TableroEntregas } from '@/components/TableroEntregas';
 import { tienePermiso } from '@/server/permisos';
 import { tableroDeEntregas } from '@/server/services/entregas';
-import { alertasDeFlota } from '@/server/services/mantenimiento';
-import { listarFlota } from '@/server/services/motos';
 import { cajeroDeSesion } from '@/server/services/sesion';
 
 export const dynamic = 'force-dynamic';
@@ -29,25 +25,11 @@ export default async function Entregas() {
   if (!cajero) redirect('/entrar');
   if (!tienePermiso(cajero.rol, 'OPERACION')) redirect('/clientes');
 
-  const [inicial, flota, alertas] = await Promise.all([
-    tableroDeEntregas(),
-    listarFlota(),
-    alertasDeFlota(),
-  ]);
-
-  const operativas = flota.filter((m) => m.estado === 'OPERATIVA');
+  const inicial = await tableroDeEntregas();
 
   return (
     <main className="mx-auto max-w-[1600px] p-5">
-      <Cabecera migas={[{ etiqueta: 'Entregas' }]} usuario={cajero} />
-      <BarraSuperior
-        motosOperativas={operativas.length}
-        motosEnTaller={flota.filter((m) => m.estado === 'EN_MANTENIMIENTO').length}
-        motosFueraDeServicio={flota.filter((m) => m.estado === 'FUERA_DE_SERVICIO').length}
-        motosSinChofer={operativas.filter((m) => m.choferId === null).length}
-        alertas={alertas.length}
-      />
-
+      <Cabecera migas={[{ etiqueta: 'Pedidos', href: '/pedidos-app' }, { etiqueta: 'Pedidos del POS' }]} usuario={cajero} />
       <div className="mb-5">
         <h1 className="text-3xl font-bold">Pedidos sin despachar</h1>
         <p className="text-slate-400">

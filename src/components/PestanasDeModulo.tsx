@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Las pestanas de la aplicacion madre: Express, Clientes, Entregas.
+ * Las pestanas de la aplicacion: Pedidos, Repartidores, Clientes, Ajustes.
  *
  * Va en la cabecera, asi que esta en todas las pantallas. Se elige el modulo
  * una vez y lo de abajo cambia; sin esto, las pantallas de clientes y las de
@@ -35,6 +35,11 @@ export function PestanasDeModulo({ rol }: { rol: string }) {
       m.enConstruccion || m.pantallas.some((p) => tienePermiso(rol, p.permiso)),
   );
   if (visibles.length < 2) return null;
+
+  // Las pantallas del modulo en que se esta, como una segunda fila.
+  const pantallas = (MODULOS.find((m) => m.clave === activo)?.pantallas ?? []).filter((p) =>
+    tienePermiso(rol, p.permiso),
+  );
 
   return (
     <nav aria-label="Modulos" className="mx-auto mt-3 max-w-[1600px]">
@@ -78,6 +83,26 @@ export function PestanasDeModulo({ rol }: { rol: string }) {
           );
         })}
       </ul>
+      {pantallas.length > 1 ? (
+        <ul className="mt-2 flex gap-4 overflow-x-auto border-b border-borde pb-1">
+          {pantallas.map((p) => {
+            const aqui = ruta === p.href || ruta.startsWith(`${p.href}/`);
+            return (
+              <li key={p.href}>
+                <Link
+                  href={p.href}
+                  aria-current={aqui ? 'page' : undefined}
+                  className={`flex h-9 items-center whitespace-nowrap border-b-2 px-1 text-sm font-semibold ${
+                    aqui ? 'border-entrada text-white' : 'border-transparent text-slate-400'
+                  }`}
+                >
+                  {p.etiqueta}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </nav>
   );
 }

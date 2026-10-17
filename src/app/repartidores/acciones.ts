@@ -21,6 +21,7 @@ import {
   reactivarChofer,
 } from '@/server/services/choferes';
 import { guardarFotoChofer } from '@/server/services/fotos';
+import { asignarMoto, crearMoto, liberarMotoDeChofer } from '@/server/services/motos';
 import { exigirCajeroCon } from '@/server/services/sesion';
 
 export type Resultado<T> = { ok: true; datos: T } | { ok: false; mensaje: string };
@@ -112,6 +113,44 @@ export async function accionEditarChofer(formData: FormData): Promise<Resultado<
     revalidatePath('/');
     revalidatePath('/repartidores');
     return { ok: true, datos: null };
+  } catch (e) {
+    return comoResultado(e);
+  }
+}
+
+/** Pone la moto que trae un repartidor hoy, o se la quita con null. */
+export async function accionPonerMotoAlChofer(
+  choferId: string,
+  placa: string | null,
+): Promise<Resultado<null>> {
+  try {
+    const cajero = await exigirCajeroCon('REPARTIDORES');
+    if (placa === null || placa === '') await liberarMotoDeChofer(choferId, cajero.id);
+    else await asignarMoto(placa, choferId, cajero.id);
+    revalidatePath('/repartidores');
+    revalidatePath('/pedidos-app');
+    return { ok: true, datos: null };
+  } catch (e) {
+    return comoResultado(e);
+  }
+}
+
+/** Da de alta una moto con lo unico que hace falta para repartir: la placa y como se le dice. */
+export async function accionAgregarMoto(placa: string, descripcion: string): Promise<Resultado<{ placa: string }>> {
+  try {
+    const cajero = await exigirCajeroCon('REPARTIDORES');
+    const creada = await crearMoto(
+      {
+        placa,
+        marca: descripcion.trim() === '' ? 'Moto' : descripcion.trim(),
+        modelo: '-',
+        anio: new Date().getFullYear(),
+        kilometrajeActual: 0,
+      },
+      cajero.id,
+    );
+    revalidatePath('/repartidores');
+    return { ok: true, datos: creada };
   } catch (e) {
     return comoResultado(e);
   }

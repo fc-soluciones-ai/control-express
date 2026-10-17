@@ -13,9 +13,9 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Control Express',
-    short_name: 'Control Express',
-    description: 'Caja, repartidores y flota de motos',
+    name: 'Delivery La Estación',
+    short_name: 'Delivery',
+    description: 'Pedidos a domicilio, repartidores y clientes',
     start_url: '/',
     display: 'standalone',
     // Sin orientacion fija: el repartidor la usa de pie en el telefono, pero

@@ -42,6 +42,8 @@ import {
   transicionPermitida,
 } from '@/server/services/pedidos-app';
 
+import { resumenDelRepartidor } from '@/server/services/repartidor';
+
 import { exigirBaseDePruebas } from './guarda-pruebas';
 
 let fallos = 0;
@@ -402,6 +404,13 @@ async function main(): Promise<void> {
   comprobar('queda en la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: 'PEDIDO_APP_ESTADO', entidadId: ultimo.id } }), 3);
   await asignarRepartidorAPedidoApp(ultimo.id, chofer.id, cajero.id);
   comprobar('asignar al mismo no repite la bitacora', await prisma.eventoAuditoria.count({ where: { tipo: 'PEDIDO_APP_ESTADO', entidadId: ultimo.id } }), 3);
+  const suyo = await resumenDelRepartidor(chofer.id);
+  const dePrueba = await prisma.pedidoApp.findUnique({ where: { id: ultimo.id } });
+  comprobar('el repartidor ve el pedido que le dieron', suyo.pedidosApp.map((x) => x.id), [ultimo.id]);
+  comprobar('con su ubicacion para abrir Waze', suyo.pedidosApp[0]?.ubicacion !== null, true);
+  comprobar('y lo que tiene que cobrar en efectivo', suyo.pedidosApp[0]?.porCobrar, dePrueba?.metodoPago === 'EFECTIVO' ? dePrueba.total : 0);
+  comprobar('y su moto de hoy', suyo.moto?.placa, 'TAPP001');
+  comprobar('otro repartidor no ve pedidos ajenos', (await resumenDelRepartidor(inactivo.id)).pedidosApp.length, 0);
   comprobar('un inactivo no puede llevar pedidos', (await falla(() => asignarRepartidorAPedidoApp(ultimo.id, inactivo.id, cajero.id)))?.codigo, 'CHOFER_INACTIVO');
   comprobar('un chofer que no existe se rechaza', (await falla(() => asignarRepartidorAPedidoApp(ultimo.id, 'noexiste', cajero.id)))?.codigo, 'CHOFER_NO_ENCONTRADO');
   comprobar('un pedido que no existe se rechaza', (await falla(() => asignarRepartidorAPedidoApp('noexiste', chofer.id, cajero.id)))?.codigo, 'PEDIDO_NO_ENCONTRADO');
@@ -410,6 +419,7 @@ async function main(): Promise<void> {
   await asignarRepartidorAPedidoApp(ultimo.id, chofer.id, cajero.id);
   await cambiarEstadoDePedidoApp(ultimo.id, 'EN_CAMINO', cajero.id);
   await cambiarEstadoDePedidoApp(ultimo.id, 'ENTREGADO', cajero.id);
+  comprobar('un pedido entregado sale de su lista', (await resumenDelRepartidor(chofer.id)).pedidosApp.length, 0);
   comprobar('un pedido entregado no se reasigna', (await falla(() => asignarRepartidorAPedidoApp(ultimo.id, null, cajero.id)))?.codigo, 'DATOS_INVALIDOS');
   comprobar('el repartidor sigue anotado en el pedido entregado', (await pedidosParaElLocal()).find((x) => x.id === ultimo.id)?.repartidor?.id, chofer.id);
 

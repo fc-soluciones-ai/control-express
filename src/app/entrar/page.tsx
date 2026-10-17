@@ -35,7 +35,7 @@ export default async function Entrar() {
           width={220}
           height={160}
         />
-        <h1 className="mb-1 text-center text-3xl font-bold">Control Express</h1>
+        <h1 className="mb-1 text-center text-3xl font-bold">Delivery La Estación</h1>
         <p className="mb-6 text-center text-slate-400">Identifiquese para entrar</p>
 
         {cajeros.length === 0 ? (

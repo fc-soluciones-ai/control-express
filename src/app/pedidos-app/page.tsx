@@ -39,7 +39,7 @@ export default async function PedidosDeLaApp() {
 
   return (
     <main className="mx-auto max-w-[1200px] p-5">
-      <Cabecera migas={[{ etiqueta: 'Entregas', href: '/entregas' }, { etiqueta: 'Pedidos de la app' }]} usuario={cajero} />
+      <Cabecera migas={[{ etiqueta: 'Pedidos', href: '/pedidos-app' }, { etiqueta: 'Pedidos de la app' }]} usuario={cajero} />
       <div className="mb-5">
         <h1 className="text-3xl font-bold">Pedidos de la app</h1>
         <p className="text-slate-400">

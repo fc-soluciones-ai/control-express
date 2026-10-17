@@ -109,8 +109,8 @@ export async function editarChofer(
 /**
  * Desactiva un repartidor.
  *
- * No se borra: tiene motos asignadas, gastos y evidencia, que son historia de
- * la flota. Queda inactivo y deja de aparecer donde se elige a alguien.
+ * No se borra: tiene motos asignadas y pedidos llevados, que son historia.
+ * Queda inactivo y deja de aparecer donde se elige a alguien.
  */
 export async function desactivarChofer(choferId: string, cajeroId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
@@ -166,8 +166,10 @@ export interface ChoferConHistoria {
   estado: string;
   /** Cuantas motos ha tenido asignadas. */
   motosAsignadas: number;
-  /** Cuantos gastos de flota registro. */
-  gastosRegistrados: number;
+  /** Cuantos pedidos de la app le asignaron. */
+  pedidosLlevados: number;
+  /** La moto que trae hoy, si trae alguna. */
+  motoPlaca: string | null;
   /** Si tiene PIN para entrar desde su telefono. El PIN nunca sale de aqui. */
   tieneAcceso: boolean;
   /** Bloqueado por intentos fallidos hasta esta hora, si lo esta. */
@@ -181,7 +183,10 @@ export interface ChoferConHistoria {
 export async function listarChoferesConHistoria(): Promise<ChoferConHistoria[]> {
   const choferes = await prisma.chofer.findMany({
     orderBy: [{ estado: 'asc' }, { nombre: 'asc' }],
-    include: { _count: { select: { asignaciones: true, gastos: true } } },
+    include: {
+      _count: { select: { asignaciones: true, pedidosApp: true } },
+      asignaciones: { where: { fechaFin: null }, select: { placa: true } },
+    },
   });
 
   return choferes.map((chofer) => {
@@ -193,7 +198,8 @@ export async function listarChoferesConHistoria(): Promise<ChoferConHistoria[]> 
       telefono: chofer.telefono,
       estado: chofer.estado,
       motosAsignadas: chofer._count.asignaciones,
-      gastosRegistrados: chofer._count.gastos,
+      pedidosLlevados: chofer._count.pedidosApp,
+      motoPlaca: chofer.asignaciones[0]?.placa ?? null,
       tieneAcceso: chofer.pin !== null,
       bloqueadoHasta:
         chofer.bloqueadoHasta && chofer.bloqueadoHasta > new Date() ? chofer.bloqueadoHasta : null,
@@ -207,8 +213,7 @@ export async function listarChoferesConHistoria(): Promise<ChoferConHistoria[]> 
 
 /**
  * Solo un administrador da o quita el acceso. El PIN es lo que deja a un
- * repartidor registrar gastos a su nombre: no lo reparte cualquier usuario de
- * caja.
+ * repartidor ver sus pedidos en el telefono: no lo reparte cualquier usuario.
  */
 function exigirAdministrador(quien: { id: string; rol: string }): void {
   if (quien.rol !== 'ADMIN') {

@@ -62,16 +62,12 @@ async function main(): Promise<void> {
 
   comprobar('el cajero solo mira la operacion', deRol('CAJERO'), ['OPERACION']);
   comprobar('el supervisor corrige y configura el dia', deRol('SUPERVISOR'), [
-    'BORRAR_EVIDENCIA',
     'CLIENTES',
-    'FLOTA',
     'OPERACION',
     'REPARTIDORES',
   ]);
   comprobar('el administrador ademas lleva las llaves', deRol('ADMIN'), [
-    'BORRAR_EVIDENCIA',
     'CLIENTES',
-    'FLOTA',
     'OPERACION',
     'REPARTIDORES',
     'USUARIOS',

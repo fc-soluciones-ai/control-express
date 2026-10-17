@@ -5,13 +5,13 @@ import { AvisoDemostracion } from '@/components/AvisoDemostracion';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Control Express',
-  description: 'Caja, repartidores y flota de motos',
+  title: 'Delivery La Estación',
+  description: 'Pedidos a domicilio, repartidores y clientes',
   // Al agregarla a la pantalla de inicio del iPhone, que abra como aplicacion
   // y no dentro de Safari. Android lo toma del manifiesto (app/manifest.ts).
   appleWebApp: {
     capable: true,
-    title: 'Control Express',
+    title: 'Delivery La Estación',
     statusBarStyle: 'black-translucent',
   },
 };

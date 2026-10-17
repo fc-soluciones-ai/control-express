@@ -6,18 +6,16 @@
  * y "ve lo de cualquiera que sepa cambiar un numero en la direccion".
  *
  * No hay nada que escriba en este archivo, y es a proposito: el repartidor
- * consulta. Lo que registra, cuando llegue su pantalla de entregas, va a ir en
- * otro modulo y con su propia firma.
+ * consulta. Quien mueve el estado de un pedido es el local.
  *
- * Esto mostraba lo que habia entregado de efectivo en su turno. Al quitarse
- * todo lo contable, lo que le sirve de verdad es lo mismo que necesita para
- * trabajar: que moto trae, que le falta a esa moto, y cuantos pedidos lleva
- * hoy.
+ * Lo que le sirve para trabajar: los pedidos de la app que le dieron (con la
+ * ubicacion del cliente para abrir Waze), los del sistema de la pizzeria que
+ * lleva en la calle, y la moto que trae hoy.
  */
 
 import { diaOperativoDe, rangoDiaOperativo } from '@/lib/fechas';
 import { prisma } from '@/lib/db/prisma';
-import { alertasDeFlota, type AlertaMoto } from '@/server/services/mantenimiento';
+import type { Coordenada } from '@/lib/pedido/envio';
 
 export interface ResumenDelRepartidor {
   diaOperativo: string;
@@ -33,16 +31,23 @@ export interface ResumenDelRepartidor {
     direccion: string | null;
     salioEn: Date | null;
   }>;
-  /** Su moto de hoy, si trae alguna. */
-  moto: {
-    placa: string;
-    marca: string;
-    modelo: string;
-    kilometraje: number;
+  /** Los pedidos de la app que le asigno el local y todavia no se entregan. */
+  pedidosApp: Array<{
+    id: string;
+    numero: number;
     estado: string;
-    prestada: boolean;
-    alertas: AlertaMoto[];
-  } | null;
+    nombre: string;
+    telefono: string;
+    direccion: string;
+    referencia: string | null;
+    ubicacion: Coordenada | null;
+    metodoPago: string;
+    /** Lo que tiene que cobrar en la puerta, en centimos. Cero si ya pago. */
+    porCobrar: number;
+    pagaCon: number | null;
+  }>;
+  /** Su moto de hoy, si trae alguna. */
+  moto: { placa: string; marca: string; modelo: string } | null;
 }
 
 export async function resumenDelRepartidor(choferId: string): Promise<ResumenDelRepartidor> {
@@ -52,7 +57,7 @@ export async function resumenDelRepartidor(choferId: string): Promise<ResumenDel
   const { desde, hasta } = rangoDiaOperativo(dia);
   const delDia = { choferId, entroEn: { gte: desde, lt: hasta }, cancelado: false };
 
-  const [pedidosHoy, entregadosHoy, enCamino, asignacion] = await Promise.all([
+  const [pedidosHoy, entregadosHoy, enCamino, pedidosApp, asignacion] = await Promise.all([
     prisma.pedido.count({ where: delDia }),
     prisma.pedido.count({ where: { ...delDia, estado: 'ENTREGADO' } }),
     prisma.pedido.findMany({
@@ -61,25 +66,16 @@ export async function resumenDelRepartidor(choferId: string): Promise<ResumenDel
       take: 20,
       include: { cliente: { select: { nombre: true, direccionTexto: true } } },
     }),
+    prisma.pedidoApp.findMany({
+      where: { choferId, estado: { in: ['ACEPTADO', 'EN_COCINA', 'EN_CAMINO'] } },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+    }),
     prisma.asignacionMoto.findFirst({
       where: { choferId, fechaFin: null },
       include: { moto: true },
     }),
   ]);
-
-  let moto: ResumenDelRepartidor['moto'] = null;
-  if (asignacion) {
-    const todas = await alertasDeFlota();
-    moto = {
-      placa: asignacion.moto.placa,
-      marca: asignacion.moto.marca,
-      modelo: asignacion.moto.modelo,
-      kilometraje: asignacion.moto.kilometrajeActual,
-      estado: asignacion.moto.estado,
-      prestada: asignacion.tipo === 'COMODIN',
-      alertas: todas.filter((a) => a.placa === asignacion.moto.placa),
-    };
-  }
 
   return {
     diaOperativo: dia,
@@ -88,12 +84,25 @@ export async function resumenDelRepartidor(choferId: string): Promise<ResumenDel
     enCamino: enCamino.map((p) => ({
       id: p.id,
       folio: p.folio,
-      // Puede no estar ligado todavia: el cliente del POS entra en la
-      // siguiente pasada del agente.
       cliente: p.cliente?.nombre ?? null,
       direccion: p.cliente?.direccionTexto ?? null,
       salioEn: p.salioEn,
     })),
-    moto,
+    pedidosApp: pedidosApp.map((p) => ({
+      id: p.id,
+      numero: p.numero,
+      estado: p.estado,
+      nombre: p.nombre,
+      telefono: p.telefono,
+      direccion: p.direccion,
+      referencia: p.referencia,
+      ubicacion: p.latitud !== null && p.longitud !== null ? { lat: p.latitud, lng: p.longitud } : null,
+      metodoPago: p.metodoPago,
+      porCobrar: p.metodoPago === 'EFECTIVO' ? p.total : 0,
+      pagaCon: p.pagaCon,
+    })),
+    moto: asignacion
+      ? { placa: asignacion.moto.placa, marca: asignacion.moto.marca, modelo: asignacion.moto.modelo }
+      : null,
   };
 }

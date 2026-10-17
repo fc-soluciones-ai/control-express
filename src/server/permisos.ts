@@ -9,9 +9,9 @@
  * de un vistazo quien puede que es lo que permite discutirlo con el negocio
  * sin leer codigo.
  *
- * CAJERO      lo de cada noche: mirar el tablero de entregas y el historial.
- * SUPERVISOR  ademas, lo que corrige o reconfigura el dia: la flota, los
- *             repartidores, los clientes y borrar una foto mal tomada.
+ * CAJERO      lo de cada noche: los pedidos, el tablero y el historial.
+ * SUPERVISOR  ademas, lo que corrige o reconfigura el dia: los repartidores
+ *             con sus motos y los clientes.
  * ADMIN       ademas, las llaves: usuarios, roles y PIN.
  *
  * Aqui habia dos permisos mas, CAJA e IMPORTAR, de cuando el sistema cerraba
@@ -23,14 +23,10 @@
 import { ErrorNegocio } from '@/server/errores';
 
 export const PERMISOS = {
-  /** El tablero de entregas y el historial. Lo mira cualquiera del mostrador. */
+  /** Los pedidos, el tablero y el historial. Lo mira cualquiera del mostrador. */
   OPERACION: ['CAJERO', 'SUPERVISOR', 'ADMIN'],
-  /** Alta y edicion de motos, gastos de taller, GPS, asignaciones. */
-  FLOTA: ['SUPERVISOR', 'ADMIN'],
-  /** Alta, edicion y baja de repartidores. */
+  /** Alta, edicion y baja de repartidores, y que moto trae cada uno. */
   REPARTIDORES: ['SUPERVISOR', 'ADMIN'],
-  /** Quitar una foto ya subida. Deja hueco en la evidencia: no es de todos. */
-  BORRAR_EVIDENCIA: ['SUPERVISOR', 'ADMIN'],
   /** Usuarios del sistema, sus roles y los PIN de todo el mundo. */
   USUARIOS: ['ADMIN'],
   /**
@@ -50,19 +46,15 @@ export function tienePermiso(rol: string, permiso: Permiso): boolean {
 }
 
 const COMO_SE_LLAMA: Record<Permiso, string> = {
-  OPERACION: 'el tablero y el historial',
-  FLOTA: 'la flota',
-  REPARTIDORES: 'los repartidores',
-  BORRAR_EVIDENCIA: 'borrar evidencia',
+  OPERACION: 'los pedidos y el historial',
+  REPARTIDORES: 'los repartidores y las motos',
   USUARIOS: 'los usuarios',
   CLIENTES: 'los clientes y sus ubicaciones',
 };
 
 const QUIEN_SI: Record<Permiso, string> = {
   OPERACION: 'un usuario del mostrador',
-  FLOTA: 'un supervisor o un administrador',
   REPARTIDORES: 'un supervisor o un administrador',
-  BORRAR_EVIDENCIA: 'un supervisor o un administrador',
   USUARIOS: 'un administrador',
   CLIENTES: 'un supervisor o un administrador',
 };

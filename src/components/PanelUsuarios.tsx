@@ -26,11 +26,11 @@ interface Props {
 }
 
 const ROLES: Array<{ valor: string; etiqueta: string; puede: string }> = [
-  { valor: 'CAJERO', etiqueta: 'Cajero', puede: 'Turnos, abonos, cierres y arqueos.' },
+  { valor: 'CAJERO', etiqueta: 'Cajero', puede: 'Ver y mover los pedidos, el tablero y el historial.' },
   {
     valor: 'SUPERVISOR',
     etiqueta: 'Supervisor',
-    puede: 'Lo del cajero, mas importar el Excel, la flota y los repartidores.',
+    puede: 'Lo del cajero, mas los repartidores con sus motos y los clientes.',
   },
   {
     valor: 'ADMIN',

@@ -3,17 +3,20 @@
 /**
  * Modulo 4: gestion de repartidores.
  *
- * Un repartidor no se borra nunca, se desactiva. Sus turnos, abonos y cierres
- * son historia contable, y las llaves foraneas estan en Restrict justamente
- * para que un clic no pueda romperla.
+ * Un repartidor no se borra nunca, se desactiva: sus pedidos y sus motos son
+ * historia, y las llaves foraneas estan en Restrict justamente para que un clic
+ * no pueda romperla. Cada repartidor lleva la moto que trae hoy; con ella aparece
+ * en la lista de a quien le toca cada pedido.
  */
 
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import {
+  accionAgregarMoto,
   accionAsignarPinRepartidor,
   accionCambiarEstadoChofer,
+  accionPonerMotoAlChofer,
   accionCrearChofer,
   accionEditarChofer,
   accionQuitarAccesoRepartidor,
@@ -24,8 +27,17 @@ import { useAvisoSinGuardar } from '@/lib/sinGuardar';
 import { clasificarDiferencia, formatearMoneda } from '@/lib/money/money';
 import type { ChoferConHistoria } from '@/server/services/choferes';
 
+export interface MotoParaElegir {
+  placa: string;
+  nombre: string;
+  /** Quien la trae hoy, si alguien. */
+  choferNombre: string | null;
+  operativa: boolean;
+}
+
 interface Props {
   choferes: ChoferConHistoria[];
+  motos: MotoParaElegir[];
   /** Solo el administrador da o quita el PIN del telefono. */
   esAdministrador: boolean;
 }
@@ -41,7 +53,7 @@ function iniciales(nombre: string): string {
     .toUpperCase();
 }
 
-export function PanelChoferes({ choferes, esAdministrador }: Props) {
+export function PanelChoferes({ choferes, motos, esAdministrador }: Props) {
   const router = useRouter();
   const [formulario, setFormulario] = useState<Formulario>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +106,8 @@ export function PanelChoferes({ choferes, esAdministrador }: Props) {
         ＋ Agregar repartidor
       </button>
 
+      <AgregarMoto motos={motos} alCambiar={() => router.refresh()} alError={setError} />
+
       {error ? (
         <p className="rounded-2xl bg-alerta/15 p-5 text-center text-lg text-alerta" role="alert">
           {error}
@@ -108,6 +122,9 @@ export function PanelChoferes({ choferes, esAdministrador }: Props) {
           <Ficha
             key={chofer.id}
             chofer={chofer}
+            motos={motos}
+            alError={setError}
+            alCambiarMoto={() => router.refresh()}
             trabajando={trabajando === chofer.id}
             alEditar={() => {
               setError(null);
@@ -131,6 +148,9 @@ export function PanelChoferes({ choferes, esAdministrador }: Props) {
             <Ficha
               key={chofer.id}
               chofer={chofer}
+              motos={motos}
+              alError={setError}
+              alCambiarMoto={() => router.refresh()}
               trabajando={trabajando === chofer.id}
               alEditar={() => {
                 setError(null);
@@ -175,6 +195,80 @@ export function PanelChoferes({ choferes, esAdministrador }: Props) {
   );
 }
 
+/** Alta rapida de una moto: la placa y como se le dice (por ejemplo "Honda roja"). */
+function AgregarMoto({
+  motos,
+  alCambiar,
+  alError,
+}: {
+  motos: MotoParaElegir[];
+  alCambiar: () => void;
+  alError: (mensaje: string | null) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [placa, setPlaca] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  const guardar = async () => {
+    setGuardando(true);
+    alError(null);
+    const respuesta = await accionAgregarMoto(placa, descripcion);
+    setGuardando(false);
+    if (!respuesta.ok) {
+      alError(respuesta.mensaje);
+      return;
+    }
+    setPlaca('');
+    setDescripcion('');
+    setAbierto(false);
+    alCambiar();
+  };
+
+  return (
+    <section className="rounded-2xl border border-borde bg-fondo p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-400">
+          {motos.length === 0
+            ? 'Todavía no hay motos. Agregá una para poder dársela a un repartidor.'
+            : `${motos.length} moto${motos.length === 1 ? '' : 's'}: ${motos.map((m) => m.placa).join(', ')}`}
+        </p>
+        <button
+          type="button"
+          className="boton-tactil border border-borde bg-panelClaro px-4 text-slate-200"
+          onClick={() => setAbierto(!abierto)}
+        >
+          ＋ Agregar moto
+        </button>
+      </div>
+      {abierto ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <input
+            value={placa}
+            onChange={(e) => setPlaca(e.target.value)}
+            placeholder="Placa (ej. MOT123)"
+            className="min-h-tactil rounded-xl bg-panelClaro px-3 text-lg"
+          />
+          <input
+            value={descripcion}
+            onChange={(e) => setDescripcion(e.target.value)}
+            placeholder="Cómo se le dice (opcional)"
+            className="min-h-tactil rounded-xl bg-panelClaro px-3 text-lg"
+          />
+          <button
+            type="button"
+            disabled={guardando || placa.trim() === ''}
+            onClick={guardar}
+            className="boton-tactil bg-entrada px-6 text-lg text-slate-950"
+          >
+            Guardar
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <section className="tarjeta p-5">
@@ -186,6 +280,9 @@ function Seccion({ titulo, children }: { titulo: string; children: React.ReactNo
 
 function Ficha({
   chofer,
+  motos,
+  alError,
+  alCambiarMoto,
   trabajando,
   alEditar,
   alCambiarEstado,
@@ -194,6 +291,9 @@ function Ficha({
   alQuitarAcceso,
 }: {
   chofer: ChoferConHistoria;
+  motos: MotoParaElegir[];
+  alError: (mensaje: string | null) => void;
+  alCambiarMoto: () => void;
   trabajando: boolean;
   alEditar: () => void;
   alCambiarEstado: () => void;
@@ -233,10 +333,36 @@ function Ficha({
             {chofer.motosAsignadas} moto{chofer.motosAsignadas === 1 ? '' : 's'}
           </p>
           <p className="text-sm text-slate-400">
-            {chofer.gastosRegistrados} gasto{chofer.gastosRegistrados === 1 ? '' : 's'} de flota
+            {chofer.pedidosLlevados} pedido{chofer.pedidosLlevados === 1 ? '' : 's'} de la app
           </p>
         </div>
       </div>
+
+      {activo ? (
+        <label className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-400">
+          🏍️ Moto de hoy
+          <select
+            value={chofer.motoPlaca ?? ''}
+            onChange={async (e) => {
+              alError(null);
+              const respuesta = await accionPonerMotoAlChofer(chofer.id, e.target.value === '' ? null : e.target.value);
+              if (!respuesta.ok) alError(respuesta.mensaje);
+              alCambiarMoto();
+            }}
+            className="min-h-tactil rounded-xl bg-panelClaro px-3 text-lg font-bold text-white ring-1 ring-borde"
+          >
+            <option value="">Sin moto</option>
+            {motos
+              .filter((m) => m.operativa || m.placa === chofer.motoPlaca)
+              .map((m) => (
+                <option key={m.placa} value={m.placa}>
+                  {m.nombre}
+                  {m.choferNombre && m.placa !== chofer.motoPlaca ? ` (la trae ${m.choferNombre})` : ''}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <button
