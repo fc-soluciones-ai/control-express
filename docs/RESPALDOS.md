@@ -174,3 +174,21 @@ El volcado lógico no sustituye a los respaldos del proveedor, los complementa.
 Revise en el panel de Supabase qué plan tiene y cada cuánto toma copias. El
 volcado de este repositorio es su red de seguridad propia, la que no depende
 de que el proveedor siga existiendo.
+
+---
+
+## Respaldo completo con `npm run db:respaldo` (19 de octubre de 2026)
+
+Con la base en PostgreSQL, el `npm run db:respaldar` de arriba solo guarda tres
+tablas (usuarios, repartidores y bitacora). Los pedidos de la app, el menú, los
+clientes y las motos quedaban fuera.
+
+`npm run db:respaldo` (o doble clic en `RESPALDAR-BASE.bat`) recorre **todas** las
+tablas que haya y deja una carpeta `respaldos/base-FECHA_HORA/` con un archivo
+por tabla (una fila por línea, en JSON) y un `manifiesto.json` con las filas y la
+huella sha256 de cada archivo. Relee lo escrito y falla si no coincide con la
+base. Es de solo lectura. No lleva las sesiones.
+
+La carpeta `respaldos/` está en `.gitignore`: tiene teléfonos y direcciones.
+Cópiela también a otro disco o a la nube: en el mismo disco no sirve contra un
+disco dañado.
