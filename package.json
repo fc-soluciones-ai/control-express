@@ -18,6 +18,7 @@
     "db:rls": "tsx scripts/activar-rls.ts",
     "db:respaldar": "tsx scripts/respaldar.ts",
     "db:respaldo": "tsx scripts/respaldar-base.ts",
+    "db:restaurar-base": "tsx scripts/restaurar-base.ts",
     "db:restaurar": "tsx scripts/restaurar.ts",
     "test:respaldo": "tsx scripts/base-de-pruebas.ts scripts/verificar-respaldo.ts",
     "demo": "tsx scripts/dev-demo.ts",
